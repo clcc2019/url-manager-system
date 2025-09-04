@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"net/http"
 	"strings"
 	"url-manager-system/backend/internal/config"
 
