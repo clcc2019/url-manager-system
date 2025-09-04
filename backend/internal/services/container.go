@@ -1,5 +1,4 @@
 package services
-package services
 
 import (
 	"database/sql"
@@ -11,9 +10,9 @@ import (
 
 // Container 服务容器
 type Container struct {
-	ProjectService  *ProjectService
-	URLService      *URLService
-	CleanupService  *CleanupService
+	ProjectService *ProjectService
+	URLService     *URLService
+	CleanupService *CleanupService
 }
 
 // NewContainer 创建服务容器
@@ -28,8 +27,8 @@ func NewContainer(db *sql.DB, redis *redis.Client, k8sClient *k8s.Client, cfg *c
 	cleanupService := NewCleanupService(db, redis, resourceManager, ingressManager, cfg)
 
 	return &Container{
-		ProjectService:  projectService,
-		URLService:      urlService,
-		CleanupService:  cleanupService,
+		ProjectService: projectService,
+		URLService:     urlService,
+		CleanupService: cleanupService,
 	}
 }
