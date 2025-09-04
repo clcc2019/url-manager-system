@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: ${{ github.repository }}/backend
+  FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # 构建生产版本镜像
+    - name: Build and push backend release image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:${{ github.ref_name }}
+          ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:stable
+        labels: |
+          org.opencontainers.image.title=URL Manager Backend
+          org.opencontainers.image.description=Backend service for URL Manager System
+          org.opencontainers.image.version=${{ github.ref_name }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push frontend release image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:${{ github.ref_name }}
+          ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:stable
+        labels: |
+          org.opencontainers.image.title=URL Manager Frontend
+          org.opencontainers.image.description=Frontend application for URL Manager System
+          org.opencontainers.image.version=${{ github.ref_name }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    # 生成更新日志
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # 获取上一个标签
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -z "$PREVIOUS_TAG" ]; then
+          echo "changelog=首次发布" >> $GITHUB_OUTPUT
+        else
+          # 生成更新日志
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${PREVIOUS_TAG}..HEAD)
+          # 转义换行符
+          CHANGELOG="${CHANGELOG//'%'/'%25'}"
+          CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
+          CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
+          echo "changelog=${CHANGELOG}" >> $GITHUB_OUTPUT
+        fi
+
+    # 创建GitHub Release
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## 🚀 URL Manager System ${{ github.ref_name }}
+
+          ### 📦 Docker镜像
+          
+          **后端服务:**
+          ```bash
+          docker pull ghcr.io/${{ github.repository }}/backend:${{ github.ref_name }}
+          ```
+          
+          **前端应用:**
+          ```bash
+          docker pull ghcr.io/${{ github.repository }}/frontend:${{ github.ref_name }}
+          ```
+
+          ### 🚀 快速部署
+
+          **使用Helm部署:**
+          ```bash
+          helm upgrade --install url-manager ./deployments/helm/url-manager \
+            --namespace url-manager \
+            --create-namespace \
+            --set backend.image.repository=ghcr.io/${{ github.repository }}/backend \
+            --set backend.image.tag=${{ github.ref_name }} \
+            --set frontend.image.repository=ghcr.io/${{ github.repository }}/frontend \
+            --set frontend.image.tag=${{ github.ref_name }}
+          ```
+
+          **使用Docker Compose:**
+          ```bash
+          export BACKEND_IMAGE=ghcr.io/${{ github.repository }}/backend:${{ github.ref_name }}
+          export FRONTEND_IMAGE=ghcr.io/${{ github.repository }}/frontend:${{ github.ref_name }}
+          docker-compose -f deployments/docker/docker-compose.yml up -d
+          ```
+
+          ### 📋 更新内容
+          
+          ${{ steps.changelog.outputs.changelog }}
+
+          ### 🔒 安全信息
+          
+          所有镜像都经过了安全扫描，请放心使用。
+
+          ### 📚 文档
+          
+          - [API文档](./docs/api.md)
+          - [部署指南](./docs/deployment.md)
+          - [项目结构](./docs/project-structure.md)
+
+        draft: false
+        prerelease: false
+        files: |
+          deployments/helm/url-manager-*.tgz
+        generate_release_notes: true

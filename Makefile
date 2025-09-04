@@ -38,6 +38,12 @@ build-backend: ## Build backend Docker image
 build-frontend: ## Build frontend Docker image
 	cd frontend && docker build -t $(FRONTEND_IMAGE):$(VERSION) .
 
+build-local: ## Build images for local development
+	./scripts/build-local.sh build
+
+build-and-test: ## Build and test images locally
+	./scripts/build-local.sh all
+
 # Testing
 test: test-backend test-frontend ## Run all tests
 

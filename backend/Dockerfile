@@ -1,35 +1,46 @@
+# 多阶段构建 - 构建阶段
 FROM golang:1.21-alpine AS builder
 
-WORKDIR /app
+# 安装必要的工具
+RUN apk add --no-cache git ca-certificates tzdata
 
-# 安装依赖
-RUN apk add --no-cache git ca-certificates
+# 设置工作目录
+WORKDIR /build
 
-# 复制go mod文件
+# 复制go mod文件并下载依赖
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && go mod verify
 
 # 复制源代码
 COPY . .
 
 # 构建应用
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o main ./cmd/server
 
-# 最终镜像
-FROM alpine:latest
+# 运行阶段 - 使用distroless镜像
+FROM gcr.io/distroless/static:nonroot
 
-RUN apk --no-cache add ca-certificates tzdata
-WORKDIR /root/
+# 从构建阶段复制二进制文件
+COPY --from=builder /build/main /
+COPY --from=builder /build/config.yaml /
+COPY --from=builder /build/internal/db/migrations ./internal/db/migrations
 
-# 复制二进制文件
-COPY --from=builder /app/main .
-COPY --from=builder /app/config.yaml .
-COPY --from=builder /app/internal/db/migrations ./internal/db/migrations
+# 复制时区信息
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# 创建非root用户
-RUN adduser -D -s /bin/sh appuser
-USER appuser
+# 使用非root用户
+USER nonroot:nonroot
 
+# 暴露端口
 EXPOSE 8080
 
-CMD ["./main"]
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/main", "-health-check"]
+
+# 启动应用
+ENTRYPOINT ["/main"]
