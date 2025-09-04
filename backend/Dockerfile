@@ -7,12 +7,14 @@ RUN apk add --no-cache git ca-certificates tzdata
 # 设置工作目录
 WORKDIR /build
 
-# 复制go mod文件并下载依赖
-COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+# 复制go mod文件
+COPY go.mod ./
 
 # 复制源代码
 COPY . .
+
+# 下载依赖并清理
+RUN go mod tidy && go mod download
 
 # 构建应用
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
