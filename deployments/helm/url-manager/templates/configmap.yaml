@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "url-manager.fullname" . }}-backend-config
+  labels:
+    {{- include "url-manager.backend.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    debug: {{ .Values.backend.env.DEBUG | default "false" }}
+    
+    server:
+      port: {{ .Values.backend.config.server.port | quote }}
+      host: {{ .Values.backend.config.server.host | quote }}
+    
+    database:
+      url: {{ include "url-manager.databaseUrl" . | quote }}
+      max_open_conns: 25
+      max_idle_conns: 5
+      conn_max_lifetime: "1h"
+    
+    redis:
+      address: {{ include "url-manager.redisAddress" . | quote }}
+      password: ""
+      db: 0
+    
+    k8s:
+      namespace: {{ .Values.backend.config.k8s.namespace | quote }}
+      in_cluster: {{ .Values.backend.config.k8s.in_cluster }}
+      default_domain: {{ .Values.backend.config.k8s.default_domain | quote }}
+      ingress_class: {{ .Values.backend.config.k8s.ingress_class | quote }}
+    
+    security:
+      allowed_images:
+        {{- range .Values.backend.config.security.allowed_images }}
+        - {{ . | quote }}
+        {{- end }}
+      max_replicas: {{ .Values.backend.config.security.max_replicas }}
+      max_ttl_seconds: {{ .Values.backend.config.security.max_ttl_seconds }}
+      default_cpu_limit: {{ .Values.backend.config.security.default_cpu_limit | quote }}
+      default_mem_limit: {{ .Values.backend.config.security.default_mem_limit | quote }}

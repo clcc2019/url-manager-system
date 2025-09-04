@@ -1,0 +1,163 @@
+# URL Manager System Configuration
+
+# Global configuration
+global:
+  storageClass: ""
+  
+# Backend configuration
+backend:
+  replicaCount: 2
+  
+  image:
+    repository: url-manager/backend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+  
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  env:
+    DEBUG: "false"
+    
+  config:
+    server:
+      port: "8080"
+      host: "0.0.0.0"
+    
+    k8s:
+      namespace: "default"
+      in_cluster: true
+      default_domain: "example.com"
+      ingress_class: "nginx"
+    
+    security:
+      allowed_images:
+        - "nginx:latest"
+        - "nginx:1.21"
+        - "httpd:latest"
+        - "httpd:2.4"
+        - "registry.example.com/"
+      max_replicas: 3
+      max_ttl_seconds: 604800  # 7 days
+      default_cpu_limit: "500m"
+      default_mem_limit: "512Mi"
+
+# Frontend configuration
+frontend:
+  replicaCount: 2
+  
+  image:
+    repository: url-manager/frontend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: url-manager.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api
+          pathType: Prefix
+          service: backend
+  tls:
+    - secretName: url-manager-tls
+      hosts:
+        - url-manager.example.com
+
+# PostgreSQL configuration (using Bitnami chart)
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: "postgres"
+    username: "postgres"
+    password: "postgres"
+    database: "url_manager"
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# Redis configuration (using Bitnami chart)
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  replica:
+    replicaCount: 1
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod Security Context
+podSecurityContext:
+  fsGroup: 2000
+
+# Security Context
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Node selector, tolerations, and affinity
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Monitoring
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    namespace: monitoring
+    interval: 30s

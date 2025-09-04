@@ -1,0 +1,28 @@
+apiVersion: v2
+name: url-manager
+description: A Helm chart for URL Manager System
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: postgresql
+    version: "12.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+  - name: redis
+    version: "17.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+
+keywords:
+  - url-manager
+  - kubernetes
+  - ephemeral-urls
+
+maintainers:
+  - name: URL Manager Team
+    email: team@example.com
+
+sources:
+  - https://github.com/example/url-manager-system

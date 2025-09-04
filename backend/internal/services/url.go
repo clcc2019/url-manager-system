@@ -1,0 +1,496 @@
+package services
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+	"url-manager-system/backend/internal/config"
+	"url-manager-system/backend/internal/db/models"
+	"url-manager-system/backend/internal/k8s"
+	"url-manager-system/backend/internal/utils"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+)
+
+const (
+	// 用于生成随机路径的字符集
+	pathChars  = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	pathLength = 8
+)
+
+// URLService URL服务
+type URLService struct {
+	db              *sql.DB
+	resourceManager *k8s.ResourceManager
+	ingressManager  *k8s.IngressManager
+	config          *config.Config
+}
+
+// NewURLService 创建URL服务
+func NewURLService(db *sql.DB, resourceManager *k8s.ResourceManager, ingressManager *k8s.IngressManager, cfg *config.Config) *URLService {
+	return &URLService{
+		db:              db,
+		resourceManager: resourceManager,
+		ingressManager:  ingressManager,
+		config:          cfg,
+	}
+}
+
+// CreateEphemeralURL 创建临时URL
+func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID, req *models.CreateEphemeralURLRequest) (*models.CreateEphemeralURLResponse, error) {
+	// 验证请求
+	if err := s.validateCreateRequest(req); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// 获取项目信息
+	project, err := s.getProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 生成随机路径
+	path, err := s.generateUniquePath(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate unique path: %w", err)
+	}
+
+	// 创建URL记录
+	url := &models.EphemeralURL{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		Path:      path,
+		Image:     req.Image,
+		Env:       req.Env,
+		Replicas:  req.Replicas,
+		Resources: req.Resources,
+		Status:    models.StatusCreating,
+		ExpireAt:  time.Now().Add(time.Duration(req.TTLSeconds) * time.Second),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// 设置默认值
+	if url.Replicas == 0 {
+		url.Replicas = 1
+	}
+	if url.Resources.Requests.CPU == "" {
+		url.Resources.Requests.CPU = "100m"
+	}
+	if url.Resources.Requests.Memory == "" {
+		url.Resources.Requests.Memory = "128Mi"
+	}
+	if url.Resources.Limits.CPU == "" {
+		url.Resources.Limits.CPU = s.config.Security.DefaultCPULimit
+	}
+	if url.Resources.Limits.Memory == "" {
+		url.Resources.Limits.Memory = s.config.Security.DefaultMemLimit
+	}
+
+	// 生成K8s资源名称
+	url.K8sDeploymentName = stringPtr(fmt.Sprintf("ephemeral-%s", url.ID.String()[:8]))
+	url.K8sServiceName = stringPtr(fmt.Sprintf("svc-ephemeral-%s", url.ID.String()[:8]))
+
+	// 如果有环境变量，创建Secret名称
+	if len(url.Env) > 0 {
+		url.K8sSecretName = stringPtr(fmt.Sprintf("secret-ephemeral-%s", url.ID.String()[:8]))
+	}
+
+	// 开始事务处理
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 插入数据库记录
+	if err := s.insertURLRecord(ctx, tx, url); err != nil {
+		return nil, fmt.Errorf("failed to insert URL record: %w", err)
+	}
+
+	// 创建Kubernetes资源
+	if err := s.createKubernetesResources(ctx, url, project.Name); err != nil {
+		logrus.WithError(err).Error("Failed to create Kubernetes resources")
+		// 更新状态为失败
+		s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
+		return nil, fmt.Errorf("failed to create Kubernetes resources: %w", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// 异步验证部署状态
+	go s.verifyDeployment(url)
+
+	// 构建返回URL
+	fullURL := fmt.Sprintf("https://%s%s", s.config.K8s.DefaultDomain, path)
+
+	logrus.WithFields(logrus.Fields{
+		"url_id":     url.ID,
+		"project_id": projectID,
+		"path":       path,
+	}).Info("Ephemeral URL created successfully")
+
+	return &models.CreateEphemeralURLResponse{
+		URL: fullURL,
+		ID:  url.ID,
+	}, nil
+}
+
+// GetEphemeralURL 获取临时URL
+func (s *URLService) GetEphemeralURL(ctx context.Context, id uuid.UUID) (*models.EphemeralURL, error) {
+	query := `
+		SELECT eu.id, eu.project_id, eu.path, eu.image, eu.env, eu.replicas, eu.resources,
+		       eu.status, eu.k8s_deployment_name, eu.k8s_service_name, eu.k8s_secret_name,
+		       eu.error_message, eu.expire_at, eu.created_at, eu.updated_at,
+		       p.id, p.name, p.description, p.created_at, p.updated_at
+		FROM ephemeral_urls eu
+		INNER JOIN projects p ON eu.project_id = p.id
+		WHERE eu.id = $1
+	`
+
+	url := &models.EphemeralURL{Project: &models.Project{}}
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&url.ID, &url.ProjectID, &url.Path, &url.Image, &url.Env, &url.Replicas, &url.Resources,
+		&url.Status, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
+		&url.ErrorMessage, &url.ExpireAt, &url.CreatedAt, &url.UpdatedAt,
+		&url.Project.ID, &url.Project.Name, &url.Project.Description, &url.Project.CreatedAt, &url.Project.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("URL not found")
+		}
+		return nil, fmt.Errorf("failed to get URL: %w", err)
+	}
+
+	return url, nil
+}
+
+// ListEphemeralURLs 列出项目的临时URL
+func (s *URLService) ListEphemeralURLs(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]models.EphemeralURL, int, error) {
+	// 获取总数
+	var total int
+	countQuery := `SELECT COUNT(*) FROM ephemeral_urls WHERE project_id = $1`
+	err := s.db.QueryRowContext(ctx, countQuery, projectID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count URLs: %w", err)
+	}
+
+	// 获取URL列表
+	query := `
+		SELECT id, project_id, path, image, env, replicas, resources,
+		       status, k8s_deployment_name, k8s_service_name, k8s_secret_name,
+		       error_message, expire_at, created_at, updated_at
+		FROM ephemeral_urls
+		WHERE project_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, projectID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list URLs: %w", err)
+	}
+	defer rows.Close()
+
+	var urls []models.EphemeralURL
+	for rows.Next() {
+		var url models.EphemeralURL
+		err := rows.Scan(
+			&url.ID, &url.ProjectID, &url.Path, &url.Image, &url.Env, &url.Replicas, &url.Resources,
+			&url.Status, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
+			&url.ErrorMessage, &url.ExpireAt, &url.CreatedAt, &url.UpdatedAt,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to scan URL")
+			continue
+		}
+		urls = append(urls, url)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating URLs: %w", err)
+	}
+
+	return urls, total, nil
+}
+
+// DeleteEphemeralURL 删除临时URL
+func (s *URLService) DeleteEphemeralURL(ctx context.Context, id uuid.UUID) error {
+	// 获取URL信息
+	url, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// 更新状态为删除中
+	if err := s.updateURLStatus(ctx, id, models.StatusDeleting, ""); err != nil {
+		return fmt.Errorf("failed to update status: %w", err)
+	}
+
+	// 删除Kubernetes资源
+	if err := s.deleteKubernetesResources(ctx, url); err != nil {
+		logrus.WithError(err).Error("Failed to delete Kubernetes resources")
+		// 更新状态为失败
+		s.updateURLStatus(ctx, id, models.StatusFailed, err.Error())
+		return fmt.Errorf("failed to delete Kubernetes resources: %w", err)
+	}
+
+	// 更新状态为已删除
+	if err := s.updateURLStatus(ctx, id, models.StatusDeleted, ""); err != nil {
+		return fmt.Errorf("failed to update final status: %w", err)
+	}
+
+	logrus.WithField("url_id", id).Info("Ephemeral URL deleted successfully")
+	return nil
+}
+
+// validateCreateRequest 验证创建请求
+func (s *URLService) validateCreateRequest(req *models.CreateEphemeralURLRequest) error {
+	// 验证镜像格式
+	if !utils.ValidateImageName(req.Image) {
+		return fmt.Errorf("invalid image name format: %s", req.Image)
+	}
+	
+	// 验证镜像白名单
+	if !s.isImageAllowed(req.Image) {
+		return fmt.Errorf("image %s is not in allowed list", req.Image)
+	}
+
+	// 验证副本数
+	if req.Replicas > s.config.Security.MaxReplicas {
+		return fmt.Errorf("replicas cannot exceed %d", s.config.Security.MaxReplicas)
+	}
+
+	// 验证TTL
+	if req.TTLSeconds > s.config.Security.MaxTTLSeconds {
+		return fmt.Errorf("TTL cannot exceed %d seconds", s.config.Security.MaxTTLSeconds)
+	}
+	
+	// 验证环境变量
+	for _, env := range req.Env {
+		if !utils.ValidateEnvironmentVariableName(env.Name) {
+			return fmt.Errorf("invalid environment variable name: %s", env.Name)
+		}
+		// 清理环境变量值
+		env.Value = utils.SanitizeInput(env.Value)
+	}
+	
+	// 验证资源配置
+	if req.Resources.Requests.CPU != "" && !utils.ValidateResourceString(req.Resources.Requests.CPU) {
+		return fmt.Errorf("invalid CPU request format: %s", req.Resources.Requests.CPU)
+	}
+	if req.Resources.Requests.Memory != "" && !utils.ValidateResourceString(req.Resources.Requests.Memory) {
+		return fmt.Errorf("invalid memory request format: %s", req.Resources.Requests.Memory)
+	}
+	if req.Resources.Limits.CPU != "" && !utils.ValidateResourceString(req.Resources.Limits.CPU) {
+		return fmt.Errorf("invalid CPU limit format: %s", req.Resources.Limits.CPU)
+	}
+	if req.Resources.Limits.Memory != "" && !utils.ValidateResourceString(req.Resources.Limits.Memory) {
+		return fmt.Errorf("invalid memory limit format: %s", req.Resources.Limits.Memory)
+	}
+
+	return nil
+}
+
+// isImageAllowed 检查镜像是否在白名单中
+func (s *URLService) isImageAllowed(image string) bool {
+	for _, allowedImage := range s.config.Security.AllowedImages {
+		if strings.HasPrefix(image, allowedImage) {
+			return true
+		}
+	}
+	return false
+}
+
+// generateRandomPath 生成随机路径
+func (s *URLService) generateRandomPath() (string, error) {
+	b := make([]byte, pathLength)
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(pathChars))))
+		if err != nil {
+			return "", err
+		}
+		b[i] = pathChars[idx.Int64()]
+	}
+	return "/" + string(b), nil
+}
+
+// generateUniquePath 生成唯一路径
+func (s *URLService) generateUniquePath(ctx context.Context, projectID uuid.UUID) (string, error) {
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		path, err := s.generateRandomPath()
+		if err != nil {
+			return "", err
+		}
+
+		// 检查路径是否已存在
+		var count int
+		query := `SELECT COUNT(*) FROM ephemeral_urls WHERE project_id = $1 AND path = $2`
+		err = s.db.QueryRowContext(ctx, query, projectID, path).Scan(&count)
+		if err != nil {
+			return "", err
+		}
+
+		if count == 0 {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to generate unique path after %d retries", maxRetries)
+}
+
+// getProject 获取项目信息
+func (s *URLService) getProject(ctx context.Context, projectID uuid.UUID) (*models.Project, error) {
+	project := &models.Project{}
+	query := `SELECT id, name, description, created_at, updated_at FROM projects WHERE id = $1`
+	err := s.db.QueryRowContext(ctx, query, projectID).Scan(
+		&project.ID, &project.Name, &project.Description, &project.CreatedAt, &project.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("project not found")
+		}
+		return nil, fmt.Errorf("failed to get project: %w", err)
+	}
+	return project, nil
+}
+
+// insertURLRecord 插入URL记录
+func (s *URLService) insertURLRecord(ctx context.Context, tx *sql.Tx, url *models.EphemeralURL) error {
+	query := `
+		INSERT INTO ephemeral_urls (
+			id, project_id, path, image, env, replicas, resources, status,
+			k8s_deployment_name, k8s_service_name, k8s_secret_name,
+			expire_at, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+		)
+	`
+
+	_, err := tx.ExecContext(ctx, query,
+		url.ID, url.ProjectID, url.Path, url.Image, url.Env, url.Replicas, url.Resources, url.Status,
+		url.K8sDeploymentName, url.K8sServiceName, url.K8sSecretName,
+		url.ExpireAt, url.CreatedAt, url.UpdatedAt,
+	)
+
+	return err
+}
+
+// createKubernetesResources 创建Kubernetes资源
+func (s *URLService) createKubernetesResources(ctx context.Context, url *models.EphemeralURL, projectName string) error {
+	// 创建Secret（如果需要）
+	if url.K8sSecretName != nil {
+		if err := s.resourceManager.CreateSecret(ctx, url); err != nil {
+			return fmt.Errorf("failed to create secret: %w", err)
+		}
+	}
+
+	// 创建Deployment
+	if err := s.resourceManager.CreateDeployment(ctx, url); err != nil {
+		return fmt.Errorf("failed to create deployment: %w", err)
+	}
+
+	// 创建Service
+	if err := s.resourceManager.CreateService(ctx, url); err != nil {
+		return fmt.Errorf("failed to create service: %w", err)
+	}
+
+	// 添加Ingress路径
+	if err := s.ingressManager.AddPath(ctx, url, projectName); err != nil {
+		return fmt.Errorf("failed to add ingress path: %w", err)
+	}
+
+	return nil
+}
+
+// deleteKubernetesResources 删除Kubernetes资源
+func (s *URLService) deleteKubernetesResources(ctx context.Context, url *models.EphemeralURL) error {
+	// 从Ingress移除路径
+	if err := s.ingressManager.RemovePath(ctx, url.Project.Name, url.Path); err != nil {
+		logrus.WithError(err).Warn("Failed to remove ingress path")
+	}
+
+	// 删除Deployment
+	if url.K8sDeploymentName != nil {
+		if err := s.resourceManager.DeleteDeployment(ctx, *url.K8sDeploymentName); err != nil {
+			logrus.WithError(err).Warn("Failed to delete deployment")
+		}
+	}
+
+	// 删除Service
+	if url.K8sServiceName != nil {
+		if err := s.resourceManager.DeleteService(ctx, *url.K8sServiceName); err != nil {
+			logrus.WithError(err).Warn("Failed to delete service")
+		}
+	}
+
+	// 删除Secret
+	if url.K8sSecretName != nil {
+		if err := s.resourceManager.DeleteSecret(ctx, *url.K8sSecretName); err != nil {
+			logrus.WithError(err).Warn("Failed to delete secret")
+		}
+	}
+
+	return nil
+}
+
+// updateURLStatus 更新URL状态
+func (s *URLService) updateURLStatus(ctx context.Context, id uuid.UUID, status, errorMessage string) error {
+	query := `
+		UPDATE ephemeral_urls 
+		SET status = $2, error_message = $3, updated_at = $4
+		WHERE id = $1
+	`
+
+	var errMsg *string
+	if errorMessage != "" {
+		errMsg = &errorMessage
+	}
+
+	_, err := s.db.ExecContext(ctx, query, id, status, errMsg, time.Now())
+	return err
+}
+
+// verifyDeployment 异步验证部署状态
+func (s *URLService) verifyDeployment(url *models.EphemeralURL) {
+	ctx := context.Background()
+	timeout := time.After(5 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			s.updateURLStatus(ctx, url.ID, models.StatusFailed, "deployment verification timeout")
+			return
+		case <-ticker.C:
+			if url.K8sDeploymentName != nil {
+				ready, err := s.resourceManager.CheckDeploymentReady(ctx, *url.K8sDeploymentName)
+				if err != nil {
+					logrus.WithError(err).Error("Failed to check deployment status")
+					continue
+				}
+
+				if ready {
+					s.updateURLStatus(ctx, url.ID, models.StatusActive, "")
+					return
+				}
+			}
+		}
+	}
+}
+
+// stringPtr 辅助函数，返回字符串指针
+func stringPtr(s string) *string {
+	return &s
+}

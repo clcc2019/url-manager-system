@@ -1,0 +1,40 @@
+debug: true
+
+server:
+  port: "8080"
+  host: "0.0.0.0"
+
+database:
+  host: "localhost"
+  port: "5432"
+  user: "postgres"
+  password: "postgres"
+  database: "url_manager"
+  ssl_mode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "1h"
+
+redis:
+  address: "localhost:6379"
+  password: ""
+  db: 0
+
+k8s:
+  namespace: "default"
+  in_cluster: false
+  config_path: ""
+  default_domain: "example.com"
+  ingress_class: "nginx"
+
+security:
+  allowed_images:
+    - "nginx:latest"
+    - "nginx:1.21"
+    - "httpd:latest"
+    - "httpd:2.4"
+    - "registry.example.com/"
+  max_replicas: 3
+  max_ttl_seconds: 604800  # 7 days
+  default_cpu_limit: "500m"
+  default_mem_limit: "512Mi"
