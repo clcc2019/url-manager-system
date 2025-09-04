@@ -1,5 +1,4 @@
 package routes
-package routes
 
 import (
 	"url-manager-system/backend/internal/api/handlers"
@@ -19,14 +18,14 @@ func SetupRoutes(serviceContainer *services.Container) *gin.Engine {
 	router.Use(middleware.SetupCORS())
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.RequestSize(10 << 20)) // 10MB
-	
+
 	// 对API路由添加速率限制
 	router.Use(middleware.RateLimiter())
 
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status": "ok",
+			"status":  "ok",
 			"service": "url-manager-system",
 		})
 	})

@@ -7,6 +7,7 @@ import (
 	"url-manager-system/backend/internal/db/models"
 
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -37,7 +38,7 @@ func (im *IngressManager) AddPath(ctx context.Context, url *models.EphemeralURL,
 	ingress, err := im.client.GetClientset().NetworkingV1().Ingresses(im.namespace).Get(ctx, ingressName, metav1.GetOptions{})
 	if err != nil {
 		// 如果Ingress不存在，创建新的
-		if metav1.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			return im.createProjectIngress(ctx, ingressName, url, projectName)
 		}
 		return err

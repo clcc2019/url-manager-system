@@ -1,5 +1,4 @@
 package config
-package config
 
 import (
 	"os"
@@ -10,11 +9,11 @@ import (
 )
 
 type Config struct {
-	Debug    bool          `mapstructure:"debug"`
-	Server   ServerConfig  `mapstructure:"server"`
+	Debug    bool           `mapstructure:"debug"`
+	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig   `mapstructure:"redis"`
-	K8s      K8sConfig     `mapstructure:"k8s"`
+	Redis    RedisConfig    `mapstructure:"redis"`
+	K8s      K8sConfig      `mapstructure:"k8s"`
 	Security SecurityConfig `mapstructure:"security"`
 }
 
@@ -24,15 +23,15 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	URL             string `mapstructure:"url"`
-	Host            string `mapstructure:"host"`
-	Port            string `mapstructure:"port"`
-	User            string `mapstructure:"user"`
-	Password        string `mapstructure:"password"`
-	Database        string `mapstructure:"database"`
-	SSLMode         string `mapstructure:"ssl_mode"`
-	MaxOpenConns    int    `mapstructure:"max_open_conns"`
-	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
+	URL             string        `mapstructure:"url"`
+	Host            string        `mapstructure:"host"`
+	Port            string        `mapstructure:"port"`
+	User            string        `mapstructure:"user"`
+	Password        string        `mapstructure:"password"`
+	Database        string        `mapstructure:"database"`
+	SSLMode         string        `mapstructure:"ssl_mode"`
+	MaxOpenConns    int           `mapstructure:"max_open_conns"`
+	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
 }
 
@@ -43,11 +42,11 @@ type RedisConfig struct {
 }
 
 type K8sConfig struct {
-	Namespace       string `mapstructure:"namespace"`
-	InCluster       bool   `mapstructure:"in_cluster"`
-	ConfigPath      string `mapstructure:"config_path"`
-	DefaultDomain   string `mapstructure:"default_domain"`
-	IngressClass    string `mapstructure:"ingress_class"`
+	Namespace     string `mapstructure:"namespace"`
+	InCluster     bool   `mapstructure:"in_cluster"`
+	ConfigPath    string `mapstructure:"config_path"`
+	DefaultDomain string `mapstructure:"default_domain"`
+	IngressClass  string `mapstructure:"ingress_class"`
 }
 
 type SecurityConfig struct {
