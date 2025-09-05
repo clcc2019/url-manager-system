@@ -8,27 +8,27 @@ RUN apk add --no-cache git ca-certificates tzdata
 WORKDIR /build
 
 # 首先复制go mod文件（用于缓存依赖）
-COPY go.mod go.sum ./
+COPY ../go.mod ../go.sum ./
 
 # 下载依赖
 RUN go mod download
 
 # 复制后端源代码
-COPY backend/ ./backend/
+COPY . ./
 
 # 构建应用
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s -extldflags "-static"' \
     -a -installsuffix cgo \
-    -o main ./backend/cmd/server
+    -o main ./cmd/server
 
 # 运行阶段 - 使用distroless镜像
 FROM gcr.io/distroless/static:nonroot
 
 # 从构建阶段复制二进制文件
 COPY --from=builder /build/main /
-COPY --from=builder /build/backend/config.yaml /
-COPY --from=builder /build/backend/internal/db/migrations ./internal/db/migrations
+COPY --from=builder /build/config.yaml /
+COPY --from=builder /build/internal/db/migrations ./internal/db/migrations
 
 # 复制时区信息
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
