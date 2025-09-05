@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Layout as AntLayout, Menu, Typography, Breadcrumb, Button } from 'antd';
-import { ProjectOutlined, LinkOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { ProjectOutlined, LinkOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
+import UserMenu from './UserMenu';
 
 const { Header, Content, Sider } = AntLayout;
 const { Title } = Typography;
@@ -37,6 +38,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       label: '项目管理',
       onClick: () => navigate('/projects'),
     },
+    {
+      key: '/templates',
+      icon: <FileTextOutlined />,
+      label: '模版管理',
+      onClick: () => navigate('/templates'),
+    },
   ];
 
   const getBreadcrumbItems = () => {
@@ -65,6 +72,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           onClick: () => navigate(`/projects/${pathSegments[1]}`)
         });
       }
+    } else if (pathSegments[0] === 'templates') {
+      items.push({
+        title: '模版管理',
+        onClick: () => navigate('/templates')
+      });
     }
 
     return items;
@@ -105,6 +117,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Title level={window.innerWidth < 768 ? 4 : 3} style={{ margin: 0, color: '#1890ff' }}>
               {window.innerWidth < 768 ? 'URL管理' : 'URL管理系统'}
             </Title>
+          </div>
+          
+          {/* 用户菜单 */}
+          <div style={{ 
+            background: 'linear-gradient(90deg, #1890ff 0%, #722ed1 100%)',
+            borderRadius: '20px',
+            padding: '2px'
+          }}>
+            <UserMenu />
           </div>
         </div>
       </Header>

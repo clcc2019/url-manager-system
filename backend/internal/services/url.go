@@ -27,15 +27,17 @@ type URLService struct {
 	db              *sql.DB
 	resourceManager *k8s.ResourceManager
 	ingressManager  *k8s.IngressManager
+	templateService *TemplateService
 	config          *config.Config
 }
 
 // NewURLService 创建URL服务
-func NewURLService(db *sql.DB, resourceManager *k8s.ResourceManager, ingressManager *k8s.IngressManager, cfg *config.Config) *URLService {
+func NewURLService(db *sql.DB, resourceManager *k8s.ResourceManager, ingressManager *k8s.IngressManager, templateService *TemplateService, cfg *config.Config) *URLService {
 	return &URLService{
 		db:              db,
 		resourceManager: resourceManager,
 		ingressManager:  ingressManager,
+		templateService: templateService,
 		config:          cfg,
 	}
 }
@@ -82,9 +84,11 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 		Resources:       req.Resources,
 		ContainerConfig: req.ContainerConfig,
 		Status:          models.StatusCreating,
-		ExpireAt:        time.Now().Add(time.Duration(req.TTLSeconds) * time.Second),
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		TTLSeconds:      req.TTLSeconds, // 保存TTL值
+		// 注意：这里先设置一个临时过期时间，实际过期时间将在Pod Ready后计算
+		ExpireAt:  time.Now().Add(24 * time.Hour), // 临时设置24小时，防止过早被清理
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	// 设置默认值
@@ -138,6 +142,8 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 			s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
 			return nil, fmt.Errorf("failed to create Kubernetes resources: %w", err)
 		}
+		// 资源创建成功后，设置为等待状态（等待Pod Ready）
+		s.updateURLStatus(ctx, url.ID, models.StatusWaiting, "")
 	}
 
 	// 提交事务
@@ -423,16 +429,16 @@ func (s *URLService) getProject(ctx context.Context, projectID uuid.UUID) (*mode
 func (s *URLService) insertURLRecord(ctx context.Context, tx *sql.Tx, url *models.EphemeralURL) error {
 	query := `
 		INSERT INTO ephemeral_urls (
-			id, project_id, path, image, env, replicas, resources, status,
+			id, project_id, path, image, env, replicas, resources, status, ttl_seconds,
 			k8s_deployment_name, k8s_service_name, k8s_secret_name,
 			expire_at, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 		)
 	`
 
 	_, err := tx.ExecContext(ctx, query,
-		url.ID, url.ProjectID, url.Path, url.Image, url.Env, url.Replicas, url.Resources, url.Status,
+		url.ID, url.ProjectID, url.Path, url.Image, url.Env, url.Replicas, url.Resources, url.Status, url.TTLSeconds,
 		url.K8sDeploymentName, url.K8sServiceName, url.K8sSecretName,
 		url.ExpireAt, url.CreatedAt, url.UpdatedAt,
 	)
@@ -553,4 +559,250 @@ func (s *URLService) verifyDeployment(url *models.EphemeralURL) {
 // stringPtr 辅助函数，返回字符串指针
 func stringPtr(s string) *string {
 	return &s
+}
+
+// CreateEphemeralURLFromTemplate 基于模版创建临时URL
+func (s *URLService) CreateEphemeralURLFromTemplate(ctx context.Context, projectID uuid.UUID, req *models.CreateEphemeralURLFromTemplateRequest) (*models.CreateEphemeralURLResponse, error) {
+	// 获取项目信息
+	project, err := s.getProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 生成路径（优先使用用户指定的路径）
+	var path string
+	if req.Path != "" {
+		// 验证自定义路径格式
+		if !strings.HasPrefix(req.Path, "/") {
+			req.Path = "/" + req.Path
+		}
+		// 检查路径是否已存在
+		var count int
+		query := `SELECT COUNT(*) FROM ephemeral_urls WHERE project_id = $1 AND path = $2`
+		err := s.db.QueryRowContext(ctx, query, projectID, req.Path).Scan(&count)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check path uniqueness: %w", err)
+		}
+		if count > 0 {
+			return nil, fmt.Errorf("path '%s' already exists in this project", req.Path)
+		}
+		path = req.Path
+	} else {
+		// 生成随机路径
+		path, err = s.generateUniquePath(ctx, projectID, fmt.Sprintf("template-%s", req.TemplateID.String()))
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate unique path: %w", err)
+		}
+	}
+
+	// 生成模版变量
+	variables := map[string]string{
+		"PATH":            strings.TrimPrefix(path, "/"),
+		"SERVICE_NAME":    fmt.Sprintf("svc-ephemeral-%s", uuid.New().String()[:8]),
+		"DEPLOYMENT_NAME": fmt.Sprintf("ephemeral-%s", uuid.New().String()[:8]),
+		"PROJECT_NAME":    project.Name,
+		"UUID":            uuid.New().String()[:8],
+	}
+
+	// 处理模版，获取处理后的YAML
+	processedYAML, err := s.templateService.ProcessTemplate(ctx, req.TemplateID, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process template: %w", err)
+	}
+
+	// 创建 URL 记录
+	url := &models.EphemeralURL{
+		ID:         uuid.New(),
+		ProjectID:  projectID,
+		TemplateID: &req.TemplateID,
+		Path:       path,
+		Image:      "template-based", // 模版创建的无具体镜像
+		Status:     models.StatusCreating,
+		TTLSeconds: req.TTLSeconds,                 // 保存TTL值
+		ExpireAt:   time.Now().Add(24 * time.Hour), // 临时过期时间
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	// 生成K8s资源名称
+	deploymentName := variables["DEPLOYMENT_NAME"]
+	serviceName := variables["SERVICE_NAME"]
+	url.K8sDeploymentName = &deploymentName
+	url.K8sServiceName = &serviceName
+
+	// 开始事务处理
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 插入数据库记录
+	if err := s.insertURLRecordWithTemplate(ctx, tx, url); err != nil {
+		return nil, fmt.Errorf("failed to insert URL record: %w", err)
+	}
+
+	// 在开发环境中，不实际创建Kubernetes资源，只保存到数据库
+	if s.config.Environment == "development" {
+		// 开发环境：设置为draft状态，不部署
+		s.updateURLStatus(ctx, url.ID, "draft", "")
+		logrus.Info("URL created from template in draft mode (development environment)")
+	} else {
+		// 生产环境：实际创建Kubernetes资源
+		if err := s.createKubernetesResourcesFromYAML(ctx, url, processedYAML); err != nil {
+			logrus.WithError(err).Error("Failed to create Kubernetes resources from template")
+			// 更新状态为失败
+			s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
+			return nil, fmt.Errorf("failed to create Kubernetes resources: %w", err)
+		}
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// 异步验证部署状态
+	go s.verifyDeployment(url)
+
+	// 构建URL
+	fullURL := fmt.Sprintf("https://%s%s", s.config.K8s.DefaultDomain, path)
+
+	logrus.WithFields(logrus.Fields{
+		"url_id":      url.ID,
+		"project_id":  projectID,
+		"template_id": req.TemplateID,
+		"path":        path,
+	}).Info("Ephemeral URL created from template successfully")
+
+	return &models.CreateEphemeralURLResponse{
+		URL: fullURL,
+		ID:  url.ID,
+	}, nil
+}
+
+// insertURLRecordWithTemplate 插入包含模版ID的URL记录
+func (s *URLService) insertURLRecordWithTemplate(ctx context.Context, tx *sql.Tx, url *models.EphemeralURL) error {
+	query := `
+		INSERT INTO ephemeral_urls (
+			id, project_id, template_id, path, image, env, replicas, resources, container_config, status, ttl_seconds,
+			k8s_deployment_name, k8s_service_name, k8s_secret_name,
+			expire_at, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+		)
+	`
+
+	_, err := tx.ExecContext(ctx, query,
+		url.ID, url.ProjectID, url.TemplateID, url.Path, url.Image,
+		url.Env, url.Replicas, url.Resources, url.ContainerConfig,
+		url.Status, url.TTLSeconds, url.K8sDeploymentName, url.K8sServiceName, url.K8sSecretName,
+		url.ExpireAt, url.CreatedAt, url.UpdatedAt,
+	)
+
+	return err
+}
+
+// createKubernetesResourcesFromYAML 从处理后的YAML创建 Kubernetes 资源
+func (s *URLService) createKubernetesResourcesFromYAML(ctx context.Context, url *models.EphemeralURL, yamlSpec string) error {
+	// TODO: 实现YAML解析和Kubernetes资源创建
+	// 这里需要解析YAML并使用client-go创建资源
+	logrus.WithField("url_id", url.ID).Info("Creating Kubernetes resources from YAML template")
+
+	// 更新状态为waiting（等待Pod Ready）
+	s.updateURLStatus(ctx, url.ID, models.StatusWaiting, "")
+
+	return nil
+}
+
+// StartPodMonitor 启动Pod状态监控服务
+func (s *URLService) StartPodMonitor() {
+	logrus.Info("Starting Pod status monitor")
+
+	ticker := time.NewTicker(30 * time.Second) // 每30秒检查一次
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.monitorPodStatus()
+		}
+	}
+}
+
+// monitorPodStatus 监控Pod状态
+func (s *URLService) monitorPodStatus() {
+	ctx := context.Background()
+
+	// 查找所有处于waiting状态的URL
+	query := `
+		SELECT id, k8s_deployment_name, ttl_seconds, created_at
+		FROM ephemeral_urls 
+		WHERE status = $1 AND k8s_deployment_name IS NOT NULL
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, models.StatusWaiting)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to query waiting URLs")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			urlID          uuid.UUID
+			deploymentName sql.NullString
+			ttlSeconds     int
+			createdAt      time.Time
+		)
+
+		if err := rows.Scan(&urlID, &deploymentName, &ttlSeconds, &createdAt); err != nil {
+			logrus.WithError(err).Error("Failed to scan waiting URL")
+			continue
+		}
+
+		// 检查是否超时（创建后15分钟还没Ready）
+		if time.Since(createdAt) > 15*time.Minute {
+			logrus.WithField("url_id", urlID).Warn("URL has been waiting too long, marking as failed")
+			s.updateURLStatus(ctx, urlID, models.StatusFailed, "Pod failed to become ready within 15 minutes")
+			continue
+		}
+
+		// 检查Pod是否Ready
+		if deploymentName.Valid && s.resourceManager != nil {
+			ready, err := s.resourceManager.CheckDeploymentReady(ctx, deploymentName.String)
+			if err != nil {
+				logrus.WithError(err).WithField("url_id", urlID).Error("Failed to check deployment readiness")
+				continue
+			}
+
+			if ready {
+				// Pod已经 Ready，计算真正的过期时间
+				now := time.Now()
+				expireAt := now.Add(time.Duration(ttlSeconds) * time.Second)
+
+				// 更新数据库：设置 started_at, expire_at 和 status
+				updateQuery := `
+					UPDATE ephemeral_urls 
+					SET started_at = $1, expire_at = $2, status = $3, updated_at = $4
+					WHERE id = $5
+				`
+				_, err = s.db.ExecContext(ctx, updateQuery, now, expireAt, models.StatusActive, now, urlID)
+				if err != nil {
+					logrus.WithError(err).WithField("url_id", urlID).Error("Failed to update URL with ready status")
+					continue
+				}
+
+				logrus.WithFields(logrus.Fields{
+					"url_id":     urlID,
+					"started_at": now,
+					"expire_at":  expireAt,
+				}).Info("URL is now active and TTL countdown started")
+			}
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		logrus.WithError(err).Error("Error iterating waiting URLs")
+	}
 }

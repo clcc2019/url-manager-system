@@ -189,3 +189,39 @@ func (h *URLHandler) ValidateAndCleanupData(c *gin.Context) {
 	logrus.Info("Data validation and cleanup completed successfully")
 	c.JSON(http.StatusOK, gin.H{"message": "Data validation and cleanup completed successfully"})
 }
+
+// CreateEphemeralURLFromTemplate 基于模版创建临时URL
+func (h *URLHandler) CreateEphemeralURLFromTemplate(c *gin.Context) {
+	projectIDStr := c.Param("id")
+	projectID, err := uuid.Parse(projectIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
+		return
+	}
+
+	var req models.CreateEphemeralURLFromTemplateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	response, err := h.urlService.CreateEphemeralURLFromTemplate(c.Request.Context(), projectID, &req)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to create ephemeral URL from template")
+
+		// 根据错误类型返回不同的状态码
+		switch {
+		case err.Error() == "project not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+		case err.Error() == "template not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+		case err.Error()[:4] == "path":
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create ephemeral URL"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusCreated, response)
+}

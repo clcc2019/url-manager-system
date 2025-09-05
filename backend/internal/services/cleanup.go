@@ -125,14 +125,16 @@ func (s *CleanupService) releaseLock(ctx context.Context) {
 // getExpiredURLs 获取过期的URL
 func (s *CleanupService) getExpiredURLs(ctx context.Context) ([]models.EphemeralURL, error) {
 	query := `
-		SELECT eu.id, eu.project_id, eu.path, eu.image, eu.env, eu.replicas, eu.resources,
-		       eu.status, eu.k8s_deployment_name, eu.k8s_service_name, eu.k8s_secret_name,
-		       eu.error_message, eu.expire_at, eu.created_at, eu.updated_at,
+		SELECT eu.id, eu.project_id, eu.template_id, eu.path, eu.image, eu.env, eu.replicas, eu.resources,
+		       eu.container_config, eu.status, eu.ttl_seconds, eu.k8s_deployment_name, eu.k8s_service_name, eu.k8s_secret_name,
+		       eu.error_message, eu.started_at, eu.expire_at, eu.created_at, eu.updated_at,
 		       p.id, p.name, p.description, p.created_at, p.updated_at
 		FROM ephemeral_urls eu
 		INNER JOIN projects p ON eu.project_id = p.id
-		WHERE eu.expire_at <= NOW() 
-		  AND eu.status IN ('creating', 'active', 'failed')
+		WHERE (
+			  (eu.status = 'active' AND eu.expire_at <= NOW())
+		   OR (eu.status = 'failed' AND eu.created_at <= NOW() - INTERVAL '1 hour')
+		)
 		ORDER BY eu.expire_at ASC
 		LIMIT 50
 	`
@@ -149,9 +151,9 @@ func (s *CleanupService) getExpiredURLs(ctx context.Context) ([]models.Ephemeral
 		url.Project = &models.Project{}
 
 		err := rows.Scan(
-			&url.ID, &url.ProjectID, &url.Path, &url.Image, &url.Env, &url.Replicas, &url.Resources,
-			&url.Status, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
-			&url.ErrorMessage, &url.ExpireAt, &url.CreatedAt, &url.UpdatedAt,
+			&url.ID, &url.ProjectID, &url.TemplateID, &url.Path, &url.Image, &url.Env, &url.Replicas, &url.Resources,
+			&url.ContainerConfig, &url.Status, &url.TTLSeconds, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
+			&url.ErrorMessage, &url.StartedAt, &url.ExpireAt, &url.CreatedAt, &url.UpdatedAt,
 			&url.Project.ID, &url.Project.Name, &url.Project.Description, &url.Project.CreatedAt, &url.Project.UpdatedAt,
 		)
 		if err != nil {

@@ -51,6 +51,7 @@ type K8sConfig struct {
 }
 
 type SecurityConfig struct {
+	JWTSecret       string   `mapstructure:"jwt_secret"`
 	AllowedImages   []string `mapstructure:"allowed_images"`
 	MaxReplicas     int      `mapstructure:"max_replicas"`
 	MaxTTLSeconds   int      `mapstructure:"max_ttl_seconds"`
@@ -62,6 +63,7 @@ func Load() (*Config, error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
+	viper.AddConfigPath("./backend")
 	viper.AddConfigPath("./configs")
 	viper.AddConfigPath("/etc/url-manager")
 
@@ -120,6 +122,7 @@ func setDefaults() {
 	viper.SetDefault("k8s.ingress_class", "nginx")
 
 	// Security配置
+	viper.SetDefault("security.jwt_secret", "")
 	viper.SetDefault("security.allowed_images", []string{"nginx:latest", "httpd:latest"})
 	viper.SetDefault("security.max_replicas", 3)
 	viper.SetDefault("security.max_ttl_seconds", 86400*7) // 7天
@@ -186,5 +189,9 @@ func overrideWithEnv() {
 
 	if val := os.Getenv("DEFAULT_DOMAIN"); val != "" {
 		viper.Set("k8s.default_domain", val)
+	}
+
+	if val := os.Getenv("JWT_SECRET"); val != "" {
+		viper.Set("security.jwt_secret", val)
 	}
 }

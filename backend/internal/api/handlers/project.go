@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"url-manager-system/backend/internal/api/middleware"
 	"url-manager-system/backend/internal/db/models"
 	"url-manager-system/backend/internal/services"
 	"url-manager-system/backend/internal/utils"
@@ -69,7 +70,14 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		return
 	}
 
-	project, err := h.projectService.CreateProject(c.Request.Context(), req.Name, req.Description)
+	// 获取当前用户ID
+	userID, err := middleware.GetCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+		return
+	}
+
+	project, err := h.projectService.CreateProject(c.Request.Context(), userID, req.Name, req.Description)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to create project")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create project"})
@@ -86,6 +94,31 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
+	}
+
+	// 获取当前用户信息
+	userID, err := middleware.GetCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+		return
+	}
+
+	userRole, err := middleware.GetCurrentUserRole(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// 检查权限：普通用户只能查看自己的项目
+	if userRole != models.RoleAdmin {
+		if err := h.projectService.CheckProjectOwnership(c.Request.Context(), id, userID); err != nil {
+			if err.Error() == "project not found" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+				return
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
 	}
 
 	project, err := h.projectService.GetProject(c.Request.Context(), id)
@@ -118,7 +151,22 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 		offset = 0
 	}
 
-	projects, total, err := h.projectService.ListProjects(c.Request.Context(), limit, offset)
+	// 获取当前用户信息
+	userID, err := middleware.GetCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+		return
+	}
+
+	userRole, err := middleware.GetCurrentUserRole(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	isAdmin := userRole == models.RoleAdmin
+
+	projects, total, err := h.projectService.ListProjects(c.Request.Context(), &userID, isAdmin, limit, offset)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list projects")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list projects"})
@@ -140,6 +188,31 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
+	}
+
+	// 获取当前用户信息
+	userID, err := middleware.GetCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+		return
+	}
+
+	userRole, err := middleware.GetCurrentUserRole(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// 检查权限：普通用户只能更新自己的项目
+	if userRole != models.RoleAdmin {
+		if err := h.projectService.CheckProjectOwnership(c.Request.Context(), id, userID); err != nil {
+			if err.Error() == "project not found" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+				return
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
 	}
 
 	var req struct {
@@ -179,6 +252,31 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project ID"})
 		return
+	}
+
+	// 获取当前用户信息
+	userID, err := middleware.GetCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+		return
+	}
+
+	userRole, err := middleware.GetCurrentUserRole(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// 检查权限：普通用户只能删除自己的项目
+	if userRole != models.RoleAdmin {
+		if err := h.projectService.CheckProjectOwnership(c.Request.Context(), id, userID); err != nil {
+			if err.Error() == "project not found" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+				return
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
 	}
 
 	err = h.projectService.DeleteProject(c.Request.Context(), id)

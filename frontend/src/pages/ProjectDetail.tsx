@@ -25,7 +25,7 @@ import {
   RocketOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { Project, EphemeralURL, CreateURLRequest, EnvironmentVar } from '../types/api.js';
+import type { Project, EphemeralURL, CreateURLRequest, CreateURLFromTemplateRequest, EnvironmentVar, AppTemplate } from '../types/api.js';
 import { ApiService } from '../services/api';
 import { formatDate, getTimeUntilExpiry } from '../utils/date';
 
@@ -38,9 +38,12 @@ const ProjectDetail: React.FC = () => {
   
   const [project, setProject] = useState<Project | null>(null);
   const [urls, setUrls] = useState<EphemeralURL[]>([]);
+  const [templates, setTemplates] = useState<AppTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [urlsLoading, setUrlsLoading] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createMode, setCreateMode] = useState<'manual' | 'template'>('manual');
+  const [selectedTemplate, setSelectedTemplate] = useState<AppTemplate | null>(null);
   const [form] = Form.useForm();
 
   const fetchProject = useCallback(async () => {
@@ -72,44 +75,76 @@ const ProjectDetail: React.FC = () => {
     }
   }, [id]);
 
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const response = await ApiService.getTemplates();
+      setTemplates(response.templates);
+    } catch {
+      message.error('获取模版列表失败');
+    }
+  }, []);
+
   useEffect(() => {
     fetchProject();
     fetchURLs();
-  }, [id, fetchProject, fetchURLs]);
+    fetchTemplates();
+  }, [id, fetchProject, fetchURLs, fetchTemplates]);
 
   const handleCreateURL = async (values: any) => {
     if (!id) return;
 
     try {
-      const request: CreateURLRequest = {
-        image: values.image,
-        ttl_seconds: values.ttl_seconds,
-        replicas: values.replicas || 1,
-        env: values.env?.filter((env: EnvironmentVar) => env.name && env.value) || [],
-        resources: {
-          requests: {
-            cpu: values.requests_cpu || '100m',
-            memory: values.requests_memory || '128Mi',
+      if (createMode === 'template' && selectedTemplate) {
+        // 使用模版创建
+        const request: CreateURLFromTemplateRequest = {
+          template_id: selectedTemplate.id,
+          ttl_seconds: values.ttl_seconds,
+          variables: values.variables ? 
+            values.variables.reduce((acc: Record<string, string>, item: any) => {
+              if (item.key && item.value) {
+                acc[item.key] = item.value;
+              }
+              return acc;
+            }, {}) : {},
+        };
+        
+        const response = await ApiService.createURLFromTemplate(id, request);
+        message.success(`URL创建成功: ${response.url}`);
+      } else {
+        // 传统方式创建
+        const request: CreateURLRequest = {
+          image: values.image,
+          ttl_seconds: values.ttl_seconds,
+          replicas: values.replicas || 1,
+          env: values.env?.filter((env: EnvironmentVar) => env.name && env.value) || [],
+          resources: {
+            requests: {
+              cpu: values.requests_cpu || '100m',
+              memory: values.requests_memory || '128Mi',
+            },
+            limits: {
+              cpu: values.limits_cpu || '500m',
+              memory: values.limits_memory || '512Mi',
+            },
           },
-          limits: {
-            cpu: values.limits_cpu || '500m',
-            memory: values.limits_memory || '512Mi',
-          },
-        },
-        container_config: values.container_config ? {
-          ...values.container_config,
-          devices: values.container_config.devices?.filter((device: any) =>
-            device.host_path && device.container_path
-          ) || undefined,
-          command: values.container_config.command?.filter((cmd: string) => cmd.trim()) || undefined,
-          args: values.container_config.args?.filter((arg: string) => arg.trim()) || undefined,
-        } : undefined,
-      };
+          container_config: values.container_config ? {
+            ...values.container_config,
+            devices: values.container_config.devices?.filter((device: any) =>
+              device.host_path && device.container_path
+            ) || undefined,
+            command: values.container_config.command?.filter((cmd: string) => cmd.trim()) || undefined,
+            args: values.container_config.args?.filter((arg: string) => arg.trim()) || undefined,
+          } : undefined,
+        };
 
-      const response = await ApiService.createURL(id, request);
-      message.success(`URL创建成功: ${response.url}`);
+        const response = await ApiService.createURL(id, request);
+        message.success(`URL创建成功: ${response.url}`);
+      }
+      
       setCreateModalVisible(false);
       form.resetFields();
+      setCreateMode('manual');
+      setSelectedTemplate(null);
       fetchURLs();
     } catch (error) {
       const errorMsg = (error as any)?.response?.data?.error || 'URL创建失败';
@@ -128,6 +163,18 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  const handleTemplateSelect = (template: AppTemplate) => {
+    setSelectedTemplate(template);
+    // 清空之前的表单数据
+    form.resetFields();
+  };
+
+  const handleCreateModeChange = (mode: 'manual' | 'template') => {
+    setCreateMode(mode);
+    setSelectedTemplate(null);
+    form.resetFields();
+  };
+
   const handleDeployURL = async (urlId: string) => {
     try {
       await ApiService.deployURL(urlId);
@@ -137,21 +184,6 @@ const ProjectDetail: React.FC = () => {
       const errorMsg = (error as any)?.response?.data?.error || 'URL部署失败';
       message.error(errorMsg);
     }
-  };
-
-
-  const getStatusTag = (status: string) => {
-    const statusConfig = {
-      draft: { color: 'default', text: '草稿' },
-      creating: { color: 'processing', text: '创建中' },
-      active: { color: 'success', text: '运行中' },
-      deleting: { color: 'warning', text: '删除中' },
-      deleted: { color: 'default', text: '已删除' },
-      failed: { color: 'error', text: '失败' },
-    };
-    
-    const config = statusConfig[status as keyof typeof statusConfig] || { color: 'default', text: status };
-    return <Tag color={config.color}>{config.text}</Tag>;
   };
 
   const urlColumns = [
@@ -177,17 +209,40 @@ const ProjectDetail: React.FC = () => {
       },
     },
     ...(window.innerWidth < 768 ? [] : [{
-      title: '镜像',
+      title: '镜像/模版',
       dataIndex: 'image',
       key: 'image',
       ellipsis: true,
+      render: (image: string, record: EphemeralURL) => {
+        if (record.template) {
+          return (
+            <div>
+              <Tag color="blue">模版: {record.template.name}</Tag>
+            </div>
+          );
+        }
+        return <Text ellipsis>{image}</Text>;
+      },
     }]),
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       width: window.innerWidth < 768 ? 80 : undefined,
-      render: (status: string) => getStatusTag(status),
+      render: (status: string) => {
+        const statusConfig = {
+          draft: { color: 'default', text: '草稿' },
+          creating: { color: 'processing', text: '创建中' },
+          waiting: { color: 'warning', text: '等待中' },
+          active: { color: 'success', text: '运行中' },
+          deleting: { color: 'warning', text: '删除中' },
+          deleted: { color: 'default', text: '已删除' },
+          failed: { color: 'error', text: '失败' },
+        };
+        
+        const config = statusConfig[status as keyof typeof statusConfig] || { color: 'default', text: status };
+        return <Tag color={config.color}>{config.text}</Tag>;
+      },
     },
     ...(window.innerWidth < 768 ? [] : [{
       title: '副本数',
@@ -314,7 +369,12 @@ const ProjectDetail: React.FC = () => {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => setCreateModalVisible(true)}
+            onClick={() => {
+            setCreateModalVisible(true);
+            setCreateMode('manual');
+            setSelectedTemplate(null);
+            form.resetFields();
+          }}
             size={window.innerWidth < 768 ? 'small' : 'middle'}
           >
             {window.innerWidth < 768 ? '' : '创建URL'}
@@ -342,6 +402,8 @@ const ProjectDetail: React.FC = () => {
         open={createModalVisible}
         onCancel={() => {
           setCreateModalVisible(false);
+          setCreateMode('manual');
+          setSelectedTemplate(null);
           form.resetFields();
         }}
         footer={null}
@@ -357,14 +419,282 @@ const ProjectDetail: React.FC = () => {
           layout="vertical"
           onFinish={handleCreateURL}
         >
-          <Form.Item
-            label="容器镜像"
-            name="image"
-            rules={[{ required: true, message: '请输入容器镜像' }]}
-          >
-            <Input placeholder="例如: nginx:latest" />
+          {/* 创建模式选择 */}
+          <Form.Item label="创建方式">
+            <Select 
+              value={createMode} 
+              onChange={handleCreateModeChange}
+              style={{ width: '100%' }}
+            >
+              <Option value="manual">手动配置</Option>
+              <Option value="template">使用模版</Option>
+            </Select>
           </Form.Item>
 
+          {/* 模版选择 */}
+          {createMode === 'template' && (
+            <Form.Item 
+              label="选择模版"
+              rules={[{ required: true, message: '请选择一个模版' }]}
+            >
+              <Select 
+                placeholder="请选择模版"
+                value={selectedTemplate?.id}
+                onChange={(templateId) => {
+                  const template = templates.find(t => t.id === templateId);
+                  if (template) {
+                    handleTemplateSelect(template);
+                  }
+                }}
+                style={{ width: '100%' }}
+              >
+                {templates.map(template => (
+                  <Option key={template.id} value={template.id}>
+                    <div>
+                      <div style={{ fontWeight: 'bold' }}>{template.name}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>{template.description}</div>
+                    </div>
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          {/* 模版变量 */}
+          {createMode === 'template' && selectedTemplate && (
+            <div>
+              <Form.Item label="模版变量">
+                <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px', marginBottom: '16px' }}>
+                  <Text type="secondary">模版：{selectedTemplate.name}</Text>
+                  <br />
+                  <Text type="secondary">{selectedTemplate.description}</Text>
+                </div>
+              </Form.Item>
+              
+              {/* 这里可以动态显示模版变量输入框 */}
+              <Form.List name="variables">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'key']}
+                          rules={[{ required: true, message: '请输入变量名' }]}
+                        >
+                          <Input placeholder="变量名" />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'value']}
+                          rules={[{ required: true, message: '请输入变量值' }]}
+                        >
+                          <Input placeholder="变量值" />
+                        </Form.Item>
+                        <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
+                      </Space>
+                    ))}
+                    <Form.Item>
+                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                        添加模版变量
+                      </Button>
+                    </Form.Item>
+                  </>
+                )}
+              </Form.List>
+            </div>
+          )}
+
+          {/* 手动配置模式 */}
+          {createMode === 'manual' && (
+            <>
+              <Form.Item
+                label="容器镜像"
+                name="image"
+                rules={[{ required: true, message: '请输入容器镜像' }]}
+              >
+                <Input placeholder="例如: nginx:latest" />
+              </Form.Item>
+
+              <Form.Item
+                label="副本数"
+                name="replicas"
+                initialValue={1}
+              >
+                <InputNumber min={1} max={10} />
+              </Form.Item>
+
+              <Divider orientation="left">资源配置</Divider>
+              
+              <Form.Item label="CPU请求">
+                <Form.Item name="requests_cpu" noStyle initialValue="100m">
+                  <Input placeholder="100m" addonAfter="cores" />
+                </Form.Item>
+              </Form.Item>
+
+              <Form.Item label="内存请求">
+                <Form.Item name="requests_memory" noStyle initialValue="128Mi">
+                  <Input placeholder="128Mi" addonAfter="bytes" />
+                </Form.Item>
+              </Form.Item>
+
+              <Form.Item label="CPU限制">
+                <Form.Item name="limits_cpu" noStyle initialValue="500m">
+                  <Input placeholder="500m" addonAfter="cores" />
+                </Form.Item>
+              </Form.Item>
+
+              <Form.Item label="内存限制">
+                <Form.Item name="limits_memory" noStyle initialValue="512Mi">
+                  <Input placeholder="512Mi" addonAfter="bytes" />
+                </Form.Item>
+              </Form.Item>
+
+              <Divider orientation="left">环境变量</Divider>
+
+              <Form.List name="env">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'name']}
+                          rules={[{ required: true, message: '请输入变量名' }]}
+                        >
+                          <Input placeholder="变量名" />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'value']}
+                          rules={[{ required: true, message: '请输入变量值' }]}
+                        >
+                          <Input placeholder="变量值" />
+                        </Form.Item>
+                        <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
+                      </Space>
+                    ))}
+                    <Form.Item>
+                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                        添加环境变量
+                      </Button>
+                    </Form.Item>
+                  </>
+                )}
+              </Form.List>
+
+              <Divider orientation="left">容器配置</Divider>
+
+              <Form.Item
+                label="容器名称"
+                name={['container_config', 'container_name']}
+                rules={[
+                  {
+                    pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+                    message: '容器名称只能包含小写字母、数字和连字符，且必须以字母数字开头和结尾'
+                  }
+                ]}
+              >
+                <Input placeholder="可选，自定义容器名称" />
+              </Form.Item>
+
+              <Form.Item
+                label="工作目录"
+                name={['container_config', 'working_dir']}
+                rules={[
+                  {
+                    pattern: /^\/.*/,
+                    message: '工作目录必须是绝对路径'
+                  }
+                ]}
+              >
+                <Input placeholder="例如: /app" />
+              </Form.Item>
+
+              <Form.Item label="TTY">
+                <Form.Item name={['container_config', 'tty']} noStyle valuePropName="checked">
+                  <input type="checkbox" />
+                </Form.Item>
+                <span style={{ marginLeft: 8 }}>分配TTY</span>
+              </Form.Item>
+
+              <Form.Item label="Stdin">
+                <Form.Item name={['container_config', 'stdin']} noStyle valuePropName="checked">
+                  <input type="checkbox" />
+                </Form.Item>
+                <span style={{ marginLeft: 8 }}>打开Stdin</span>
+              </Form.Item>
+
+              <Divider orientation="left">设备映射</Divider>
+
+              <Form.List name={['container_config', 'devices']}>
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <Space key={key} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'host_path']}
+                          rules={[
+                            { required: true, message: '请输入主机路径' },
+                            { pattern: /^\/.*/, message: '主机路径必须是绝对路径' }
+                          ]}
+                          style={{ minWidth: 200 }}
+                        >
+                          <Input placeholder="主机路径 (例如: /dev/kvm)" />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'container_path']}
+                          rules={[
+                            { required: true, message: '请输入容器路径' },
+                            { pattern: /^\/.*/, message: '容器路径必须是绝对路径' }
+                          ]}
+                          style={{ minWidth: 200 }}
+                        >
+                          <Input placeholder="容器路径 (例如: /dev/kvm)" />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'permissions']}
+                          rules={[
+                            { pattern: /^[rwm]*$/, message: '权限只能包含 r、w、m 字符' }
+                          ]}
+                          style={{ minWidth: 100 }}
+                        >
+                          <Input placeholder="权限 (rwm)" />
+                        </Form.Item>
+                        <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
+                      </Space>
+                    ))}
+                    <Form.Item>
+                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                        添加设备映射
+                      </Button>
+                    </Form.Item>
+                  </>
+                )}
+              </Form.List>
+
+              <Divider orientation="left">启动配置</Divider>
+
+              <Form.Item
+                label="启动命令"
+                name={['container_config', 'command']}
+              >
+                <Select mode="tags" placeholder="可选，覆盖默认启动命令" />
+              </Form.Item>
+
+              <Form.Item
+                label="启动参数"
+                name={['container_config', 'args']}
+              >
+                <Select mode="tags" placeholder="可选，传递给启动命令的参数" />
+              </Form.Item>
+            </>
+          )}
+
+          {/* TTL配置（公共） */}
           <Form.Item
             label="过期时间"
             name="ttl_seconds"
@@ -379,182 +709,6 @@ const ProjectDetail: React.FC = () => {
             </Select>
           </Form.Item>
 
-          <Form.Item
-            label="副本数"
-            name="replicas"
-            initialValue={1}
-          >
-            <InputNumber min={1} max={10} />
-          </Form.Item>
-
-          <Divider orientation="left">资源配置</Divider>
-          
-          <Form.Item label="CPU请求">
-            <Form.Item name="requests_cpu" noStyle initialValue="100m">
-              <Input placeholder="100m" addonAfter="cores" />
-            </Form.Item>
-          </Form.Item>
-
-          <Form.Item label="内存请求">
-            <Form.Item name="requests_memory" noStyle initialValue="128Mi">
-              <Input placeholder="128Mi" addonAfter="bytes" />
-            </Form.Item>
-          </Form.Item>
-
-          <Form.Item label="CPU限制">
-            <Form.Item name="limits_cpu" noStyle initialValue="500m">
-              <Input placeholder="500m" addonAfter="cores" />
-            </Form.Item>
-          </Form.Item>
-
-          <Form.Item label="内存限制">
-            <Form.Item name="limits_memory" noStyle initialValue="512Mi">
-              <Input placeholder="512Mi" addonAfter="bytes" />
-            </Form.Item>
-          </Form.Item>
-
-          <Divider orientation="left">环境变量</Divider>
-
-          <Form.List name="env">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'name']}
-                      rules={[{ required: true, message: '请输入变量名' }]}
-                    >
-                      <Input placeholder="变量名" />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'value']}
-                      rules={[{ required: true, message: '请输入变量值' }]}
-                    >
-                      <Input placeholder="变量值" />
-                    </Form.Item>
-                    <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
-                  </Space>
-                ))}
-                <Form.Item>
-                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                    添加环境变量
-                  </Button>
-                </Form.Item>
-              </>
-            )}
-          </Form.List>
-
-          <Divider orientation="left">容器配置</Divider>
-
-          <Form.Item
-            label="容器名称"
-            name={['container_config', 'container_name']}
-            rules={[
-              {
-                pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
-                message: '容器名称只能包含小写字母、数字和连字符，且必须以字母数字开头和结尾'
-              }
-            ]}
-          >
-            <Input placeholder="可选，自定义容器名称" />
-          </Form.Item>
-
-          <Form.Item
-            label="工作目录"
-            name={['container_config', 'working_dir']}
-            rules={[
-              {
-                pattern: /^\/.*/,
-                message: '工作目录必须是绝对路径'
-              }
-            ]}
-          >
-            <Input placeholder="例如: /app" />
-          </Form.Item>
-
-          <Form.Item label="TTY">
-            <Form.Item name={['container_config', 'tty']} noStyle valuePropName="checked">
-              <input type="checkbox" />
-            </Form.Item>
-            <span style={{ marginLeft: 8 }}>分配TTY</span>
-          </Form.Item>
-
-          <Form.Item label="Stdin">
-            <Form.Item name={['container_config', 'stdin']} noStyle valuePropName="checked">
-              <input type="checkbox" />
-            </Form.Item>
-            <span style={{ marginLeft: 8 }}>打开Stdin</span>
-          </Form.Item>
-
-          <Divider orientation="left">设备映射</Divider>
-
-          <Form.List name={['container_config', 'devices']}>
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'host_path']}
-                      rules={[
-                        { required: true, message: '请输入主机路径' },
-                        { pattern: /^\/.*/, message: '主机路径必须是绝对路径' }
-                      ]}
-                      style={{ minWidth: 200 }}
-                    >
-                      <Input placeholder="主机路径 (例如: /dev/kvm)" />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'container_path']}
-                      rules={[
-                        { required: true, message: '请输入容器路径' },
-                        { pattern: /^\/.*/, message: '容器路径必须是绝对路径' }
-                      ]}
-                      style={{ minWidth: 200 }}
-                    >
-                      <Input placeholder="容器路径 (例如: /dev/kvm)" />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'permissions']}
-                      rules={[
-                        { pattern: /^[rwm]*$/, message: '权限只能包含 r、w、m 字符' }
-                      ]}
-                      style={{ minWidth: 100 }}
-                    >
-                      <Input placeholder="权限 (rwm)" />
-                    </Form.Item>
-                    <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
-                  </Space>
-                ))}
-                <Form.Item>
-                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                    添加设备映射
-                  </Button>
-                </Form.Item>
-              </>
-            )}
-          </Form.List>
-
-          <Divider orientation="left">启动配置</Divider>
-
-          <Form.Item
-            label="启动命令"
-            name={['container_config', 'command']}
-          >
-            <Select mode="tags" placeholder="可选，覆盖默认启动命令" />
-          </Form.Item>
-
-          <Form.Item
-            label="启动参数"
-            name={['container_config', 'args']}
-          >
-            <Select mode="tags" placeholder="可选，传递给启动命令的参数" />
-          </Form.Item>
-
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit">
@@ -563,6 +717,8 @@ const ProjectDetail: React.FC = () => {
               <Button 
                 onClick={() => {
                   setCreateModalVisible(false);
+                  setCreateMode('manual');
+                  setSelectedTemplate(null);
                   form.resetFields();
                 }}
               >

@@ -33,8 +33,18 @@ func SetupRoutes(serviceContainer *services.Container) *gin.Engine {
 	// API路由组
 	api := router.Group("/api/v1")
 	{
-		setupProjectRoutes(api, serviceContainer)
-		setupURLRoutes(api, serviceContainer)
+		// 公开路由（不需要认证）
+		setupAuthRoutes(api, serviceContainer)
+		
+		// 需要认证的路由
+		authorized := api.Group("")
+		authorized.Use(middleware.AuthMiddleware(serviceContainer.AuthService))
+		{
+			setupProjectRoutes(authorized, serviceContainer)
+			setupURLRoutes(authorized, serviceContainer)
+			setupTemplateRoutes(authorized, serviceContainer)
+			setupUserRoutes(authorized, serviceContainer)
+		}
 	}
 
 	return router
@@ -55,6 +65,7 @@ func setupProjectRoutes(api *gin.RouterGroup, serviceContainer *services.Contain
 		// 项目下的URL管理
 		urlHandler := handlers.NewURLHandler(serviceContainer.URLService, serviceContainer.CleanupService)
 		projects.POST("/:id/urls", urlHandler.CreateEphemeralURL)
+		projects.POST("/:id/urls/from-template", urlHandler.CreateEphemeralURLFromTemplate)
 		projects.GET("/:id/urls", urlHandler.ListEphemeralURLs)
 	}
 }
@@ -70,5 +81,52 @@ func setupURLRoutes(api *gin.RouterGroup, serviceContainer *services.Container) 
 		urls.POST("/:id/deploy", urlHandler.DeployURL)
 		urls.POST("/validate-cleanup", urlHandler.ValidateAndCleanupData)
 		// urls.GET("/path/:path", urlHandler.GetURLByPath) // 可选：根据路径查询
+	}
+}
+
+// setupTemplateRoutes 设置模版路由
+func setupTemplateRoutes(api *gin.RouterGroup, serviceContainer *services.Container) {
+	templateHandler := handlers.NewTemplateHandler(serviceContainer.TemplateService)
+
+	templates := api.Group("/templates")
+	{
+		templates.POST("", templateHandler.CreateTemplate)
+		templates.GET("", templateHandler.ListTemplates)
+		templates.GET("/:id", templateHandler.GetTemplate)
+		templates.PUT("/:id", templateHandler.UpdateTemplate)
+		templates.DELETE("/:id", templateHandler.DeleteTemplate)
+		templates.GET("/:id/variables", templateHandler.GetTemplateVariables)
+		templates.POST("/:id/preview", templateHandler.PreviewTemplate)
+	}
+}
+
+// setupAuthRoutes 设置认证路由（不需要认证）
+func setupAuthRoutes(api *gin.RouterGroup, serviceContainer *services.Container) {
+	authHandler := handlers.NewAuthHandler(serviceContainer.AuthService)
+
+	auth := api.Group("/auth")
+	{
+		auth.POST("/login", authHandler.Login)
+		auth.POST("/logout", authHandler.Logout) // 前端处理，后端只返回成功
+	}
+}
+
+// setupUserRoutes 设置用户路由（需要认证）
+func setupUserRoutes(api *gin.RouterGroup, serviceContainer *services.Container) {
+	authHandler := handlers.NewAuthHandler(serviceContainer.AuthService)
+
+	users := api.Group("/users")
+	{
+		// 用户信息相关
+		users.GET("/profile", authHandler.GetProfile)
+		users.PUT("/password", authHandler.ChangePassword)
+		
+		// 管理员功能
+		admin := users.Group("")
+		admin.Use(middleware.AdminMiddleware())
+		{
+			admin.POST("/register", authHandler.Register)
+			admin.GET("", authHandler.ListUsers)
+		}
 	}
 }

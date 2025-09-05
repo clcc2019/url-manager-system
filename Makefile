@@ -24,7 +24,7 @@ dev-local: ## Start local development environment (no containers for backend/fro
 
 dev-backend-local: ## Start backend in local development mode
 	pkill main || true
-	cd backend && go run cmd/server/main.go
+	go run backend/cmd/server/main.go
 
 dev-frontend-local: ## Start frontend in local development mode
 	cd frontend && npm run dev -- --host 0.0.0.0 --port 5173

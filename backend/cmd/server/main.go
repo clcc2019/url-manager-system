@@ -63,8 +63,8 @@ func main() {
 	// 初始化服务层
 	serviceContainer := services.NewContainer(database, redisClient, k8sClient, cfg)
 
-	// 启动清理worker
-	go serviceContainer.CleanupService.StartWorker()
+	// 启动后台工作线程
+	serviceContainer.StartWorkers()
 
 	// 设置Gin模式
 	if !cfg.Debug {

@@ -8,9 +8,39 @@ import (
 	"github.com/google/uuid"
 )
 
+// User 用户模型
+type User struct {
+	ID           uuid.UUID  `json:"id" db:"id"`
+	Username     string     `json:"username" db:"username" binding:"required,min=3,max=50"`
+	PasswordHash string     `json:"-" db:"password_hash"` // 不返回到前端
+	Role         string     `json:"role" db:"role"`
+	Email        *string    `json:"email" db:"email"`
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+	LastLoginAt  *time.Time `json:"last_login_at" db:"last_login_at"`
+}
+
+// UserRole 用户角色常量
+const (
+	RoleAdmin = "admin"
+	RoleUser  = "user"
+)
+
+// AppTemplate 应用模版模型
+type AppTemplate struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	UserID      uuid.UUID `json:"user_id" db:"user_id"`
+	Name        string    `json:"name" db:"name" binding:"required,min=1,max=100"`
+	Description string    `json:"description" db:"description"`
+	YamlSpec    string    `json:"yaml_spec" db:"yaml_spec" binding:"required"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+}
+
 // Project 项目模型
 type Project struct {
 	ID          uuid.UUID `json:"id" db:"id"`
+	UserID      uuid.UUID `json:"user_id" db:"user_id"`
 	Name        string    `json:"name" db:"name" binding:"required,min=1,max=100"`
 	Description string    `json:"description" db:"description"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
@@ -20,7 +50,9 @@ type Project struct {
 // EphemeralURL 临时URL模型
 type EphemeralURL struct {
 	ID                uuid.UUID       `json:"id" db:"id"`
+	UserID            uuid.UUID       `json:"user_id" db:"user_id"`
 	ProjectID         uuid.UUID       `json:"project_id" db:"project_id"`
+	TemplateID        *uuid.UUID      `json:"template_id" db:"template_id"`
 	Path              string          `json:"path" db:"path"`
 	Image             string          `json:"image" db:"image" binding:"required"`
 	Env               EnvironmentVars `json:"env" db:"env"`
@@ -28,16 +60,20 @@ type EphemeralURL struct {
 	Resources         ResourceLimits  `json:"resources" db:"resources"`
 	ContainerConfig   ContainerConfig `json:"container_config" db:"container_config"`
 	Status            string          `json:"status" db:"status"`
+	TTLSeconds        int             `json:"ttl_seconds" db:"ttl_seconds"`
 	K8sDeploymentName *string         `json:"k8s_deployment_name" db:"k8s_deployment_name"`
 	K8sServiceName    *string         `json:"k8s_service_name" db:"k8s_service_name"`
 	K8sSecretName     *string         `json:"k8s_secret_name" db:"k8s_secret_name"`
 	ErrorMessage      *string         `json:"error_message" db:"error_message"`
+	StartedAt         *time.Time      `json:"started_at" db:"started_at"`
 	ExpireAt          time.Time       `json:"expire_at" db:"expire_at"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at" db:"updated_at"`
 
 	// 关联项目信息(用于查询时连表获取)
 	Project *Project `json:"project,omitempty"`
+	// 关联模版信息(用于查询时连表获取)
+	Template *AppTemplate `json:"template,omitempty"`
 }
 
 // EnvironmentVar 环境变量
@@ -169,6 +205,7 @@ func (r *ResourceLimits) Scan(value interface{}) error {
 // URLStatus 状态常量
 const (
 	StatusCreating = "creating"
+	StatusWaiting  = "waiting"
 	StatusActive   = "active"
 	StatusDeleting = "deleting"
 	StatusDeleted  = "deleted"
@@ -183,6 +220,27 @@ type CreateEphemeralURLRequest struct {
 	Replicas        int             `json:"replicas" binding:"min=1,max=10"`
 	Resources       ResourceLimits  `json:"resources"`
 	ContainerConfig ContainerConfig `json:"container_config"`
+}
+
+// CreateEphemeralURLFromTemplateRequest 基于模版创建URL请求
+type CreateEphemeralURLFromTemplateRequest struct {
+	TemplateID uuid.UUID `json:"template_id" binding:"required"`
+	TTLSeconds int       `json:"ttl_seconds" binding:"required,min=60,max=604800"` // 1分钟到7天
+	Path       string    `json:"path,omitempty"`                                   // 可选，为空时系统生成
+}
+
+// CreateAppTemplateRequest 创建应用模版请求
+type CreateAppTemplateRequest struct {
+	Name        string `json:"name" binding:"required,min=1,max=100"`
+	Description string `json:"description"`
+	YamlSpec    string `json:"yaml_spec" binding:"required"`
+}
+
+// UpdateAppTemplateRequest 更新应用模版请求
+type UpdateAppTemplateRequest struct {
+	Name        string `json:"name" binding:"required,min=1,max=100"`
+	Description string `json:"description"`
+	YamlSpec    string `json:"yaml_spec" binding:"required"`
 }
 
 // CreateEphemeralURLResponse 创建URL响应
@@ -201,4 +259,52 @@ type ListProjectsResponse struct {
 type ListURLsResponse struct {
 	URLs  []EphemeralURL `json:"urls"`
 	Total int            `json:"total"`
+}
+
+// ListAppTemplatesResponse 模版列表响应
+type ListAppTemplatesResponse struct {
+	Templates []AppTemplate `json:"templates"`
+	Total     int           `json:"total"`
+}
+
+// 用户认证相关的请求和响应类型
+
+// LoginRequest 登录请求
+type LoginRequest struct {
+	Username string `json:"username" binding:"required,min=3,max=50"`
+	Password string `json:"password" binding:"required,min=6,max=50"`
+}
+
+// LoginResponse 登录响应
+type LoginResponse struct {
+	Token     string    `json:"token"`
+	User      User      `json:"user"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// RegisterRequest 注册请求
+type RegisterRequest struct {
+	Username string  `json:"username" binding:"required,min=3,max=50"`
+	Password string  `json:"password" binding:"required,min=6,max=50"`
+	Email    *string `json:"email"`
+}
+
+// ChangePasswordRequest 修改密码请求
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6,max=50"`
+}
+
+// UserProfileResponse 用户信息响应
+type UserProfileResponse struct {
+	User User `json:"user"`
+}
+
+// JWTClaims JWT声明
+type JWTClaims struct {
+	UserID   uuid.UUID `json:"user_id"`
+	Username string    `json:"username"`
+	Role     string    `json:"role"`
+	Exp      int64     `json:"exp"`
+	Iat      int64     `json:"iat"`
 }
