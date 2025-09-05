@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Card, 
   Descriptions, 
@@ -43,39 +43,39 @@ const ProjectDetail: React.FC = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [form] = Form.useForm();
 
-  const fetchProject = async () => {
+  const fetchProject = useCallback(async () => {
     if (!id) return;
-    
+
     setLoading(true);
     try {
       const projectData = await ApiService.getProject(id);
       setProject(projectData);
-    } catch (error) {
+    } catch {
       message.error('获取项目信息失败');
       navigate('/projects');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
 
-  const fetchURLs = async () => {
+  const fetchURLs = useCallback(async () => {
     if (!id) return;
-    
+
     setUrlsLoading(true);
     try {
       const response = await ApiService.getProjectURLs(id);
       setUrls(response.urls);
-    } catch (error) {
+    } catch {
       message.error('获取URL列表失败');
     } finally {
       setUrlsLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     fetchProject();
     fetchURLs();
-  }, [id]);
+  }, [id, fetchProject, fetchURLs]);
 
   const handleCreateURL = async (values: any) => {
     if (!id) return;
@@ -103,8 +103,8 @@ const ProjectDetail: React.FC = () => {
       setCreateModalVisible(false);
       form.resetFields();
       fetchURLs();
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || 'URL创建失败';
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || 'URL创建失败';
       message.error(errorMsg);
     }
   };
@@ -114,8 +114,8 @@ const ProjectDetail: React.FC = () => {
       await ApiService.deleteURL(urlId);
       message.success('URL删除成功');
       fetchURLs();
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || 'URL删除失败';
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || 'URL删除失败';
       message.error(errorMsg);
     }
   };
@@ -125,8 +125,8 @@ const ProjectDetail: React.FC = () => {
       await ApiService.deployURL(urlId);
       message.success('URL部署成功');
       fetchURLs();
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || 'URL部署失败';
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || 'URL部署失败';
       message.error(errorMsg);
     }
   };
