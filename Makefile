@@ -50,7 +50,7 @@ build-backend: ## Build backend Docker image
 	sudo docker build -f backend/Dockerfile -t $(BACKEND_IMAGE):$(VERSION) .
 
 build-frontend: ## Build frontend Docker image
-	cd frontend && sudo docker build -t $(FRONTEND_IMAGE):$(VERSION) .
+	sudo docker build -f frontend/Dockerfile -t $(FRONTEND_IMAGE):$(VERSION) .
 
 build-local: ## Build images for local development
 	./scripts/build-local.sh build
