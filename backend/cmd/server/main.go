@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"url-manager-system/backend/internal/api/routes"
 	"url-manager-system/backend/internal/config"
@@ -33,7 +34,15 @@ func main() {
 	defer database.Close()
 
 	// 运行数据库迁移
-	if err := db.RunMigrations(cfg.Database.URL); err != nil {
+	var migrationDSN string
+	if cfg.Database.URL != "" {
+		migrationDSN = cfg.Database.URL
+	} else {
+		migrationDSN = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+			cfg.Database.User, cfg.Database.Password, cfg.Database.Host,
+			cfg.Database.Port, cfg.Database.Database, cfg.Database.SSLMode)
+	}
+	if err := db.RunMigrations(migrationDSN); err != nil {
 		logrus.Fatal("Failed to run migrations:", err)
 	}
 
@@ -44,10 +53,11 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	// 初始化Kubernetes客户端
+	// 初始化Kubernetes客户端（开发环境可选项）
 	k8sClient, err := k8s.NewClient()
 	if err != nil {
-		logrus.Fatal("Failed to create Kubernetes client:", err)
+		logrus.Warn("Failed to create Kubernetes client (this is normal in development):", err)
+		k8sClient = nil
 	}
 
 	// 初始化服务层

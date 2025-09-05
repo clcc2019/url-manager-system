@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, Card, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { CreateProjectRequest } from '../types/api';
+import type { CreateProjectRequest } from '../types/api.js';
 import { ApiService } from '../services/api';
 
 const CreateProject: React.FC = () => {

@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	Debug    bool           `mapstructure:"debug"`
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	K8s      K8sConfig      `mapstructure:"k8s"`
-	Security SecurityConfig `mapstructure:"security"`
+	Debug       bool           `mapstructure:"debug"`
+	Environment string         `mapstructure:"environment"`
+	Server      ServerConfig   `mapstructure:"server"`
+	Database    DatabaseConfig `mapstructure:"database"`
+	Redis       RedisConfig    `mapstructure:"redis"`
+	K8s         K8sConfig      `mapstructure:"k8s"`
+	Security    SecurityConfig `mapstructure:"security"`
 }
 
 type ServerConfig struct {
@@ -91,6 +92,7 @@ func Load() (*Config, error) {
 func setDefaults() {
 	// Server配置
 	viper.SetDefault("debug", false)
+	viper.SetDefault("environment", "development")
 	viper.SetDefault("server.port", "8080")
 	viper.SetDefault("server.host", "0.0.0.0")
 

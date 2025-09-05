@@ -10,33 +10,33 @@ import (
 
 // Project 项目模型
 type Project struct {
-	ID          uuid.UUID  `json:"id" db:"id"`
-	Name        string     `json:"name" db:"name" binding:"required,min=1,max=100"`
-	Description string     `json:"description" db:"description"`
-	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID `json:"id" db:"id"`
+	Name        string    `json:"name" db:"name" binding:"required,min=1,max=100"`
+	Description string    `json:"description" db:"description"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // EphemeralURL 临时URL模型
 type EphemeralURL struct {
-	ID                 uuid.UUID        `json:"id" db:"id"`
-	ProjectID          uuid.UUID        `json:"project_id" db:"project_id"`
-	Path               string           `json:"path" db:"path"`
-	Image              string           `json:"image" db:"image" binding:"required"`
-	Env                EnvironmentVars  `json:"env" db:"env"`
-	Replicas           int              `json:"replicas" db:"replicas" binding:"min=1,max=10"`
-	Resources          ResourceLimits   `json:"resources" db:"resources"`
-	Status             string           `json:"status" db:"status"`
-	K8sDeploymentName  *string          `json:"k8s_deployment_name" db:"k8s_deployment_name"`
-	K8sServiceName     *string          `json:"k8s_service_name" db:"k8s_service_name"`
-	K8sSecretName      *string          `json:"k8s_secret_name" db:"k8s_secret_name"`
-	ErrorMessage       *string          `json:"error_message" db:"error_message"`
-	ExpireAt           time.Time        `json:"expire_at" db:"expire_at"`
-	CreatedAt          time.Time        `json:"created_at" db:"created_at"`
-	UpdatedAt          time.Time        `json:"updated_at" db:"updated_at"`
-	
+	ID                uuid.UUID       `json:"id" db:"id"`
+	ProjectID         uuid.UUID       `json:"project_id" db:"project_id"`
+	Path              string          `json:"path" db:"path"`
+	Image             string          `json:"image" db:"image" binding:"required"`
+	Env               EnvironmentVars `json:"env" db:"env"`
+	Replicas          int             `json:"replicas" db:"replicas" binding:"min=1,max=10"`
+	Resources         ResourceLimits  `json:"resources" db:"resources"`
+	Status            string          `json:"status" db:"status"`
+	K8sDeploymentName *string         `json:"k8s_deployment_name" db:"k8s_deployment_name"`
+	K8sServiceName    *string         `json:"k8s_service_name" db:"k8s_service_name"`
+	K8sSecretName     *string         `json:"k8s_secret_name" db:"k8s_secret_name"`
+	ErrorMessage      *string         `json:"error_message" db:"error_message"`
+	ExpireAt          time.Time       `json:"expire_at" db:"expire_at"`
+	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at" db:"updated_at"`
+
 	// 关联项目信息(用于查询时连表获取)
-	Project            *Project         `json:"project,omitempty"`
+	Project *Project `json:"project,omitempty"`
 }
 
 // EnvironmentVar 环境变量
@@ -62,12 +62,12 @@ func (e *EnvironmentVars) Scan(value interface{}) error {
 		*e = nil
 		return nil
 	}
-	
+
 	bytes, ok := value.([]byte)
 	if !ok {
 		return nil
 	}
-	
+
 	return json.Unmarshal(bytes, e)
 }
 
@@ -93,12 +93,12 @@ func (r *ResourceLimits) Scan(value interface{}) error {
 	if value == nil {
 		return nil
 	}
-	
+
 	bytes, ok := value.([]byte)
 	if !ok {
 		return nil
 	}
-	
+
 	return json.Unmarshal(bytes, r)
 }
 
@@ -113,11 +113,11 @@ const (
 
 // CreateEphemeralURLRequest 创建URL请求
 type CreateEphemeralURLRequest struct {
-	Image      string           `json:"image" binding:"required"`
-	Env        EnvironmentVars  `json:"env"`
-	TTLSeconds int              `json:"ttl_seconds" binding:"required,min=60,max=604800"` // 1分钟到7天
-	Replicas   int              `json:"replicas" binding:"min=1,max=10"`
-	Resources  ResourceLimits   `json:"resources"`
+	Image      string          `json:"image" binding:"required"`
+	Env        EnvironmentVars `json:"env"`
+	TTLSeconds int             `json:"ttl_seconds" binding:"required,min=60,max=604800"` // 1分钟到7天
+	Replicas   int             `json:"replicas" binding:"min=1,max=10"`
+	Resources  ResourceLimits  `json:"resources"`
 }
 
 // CreateEphemeralURLResponse 创建URL响应

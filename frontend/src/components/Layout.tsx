@@ -52,7 +52,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </Header>
       
       <AntLayout>
-        <Sider width={256} style={{ background: '#fff' }}>
+        <Sider 
+          width={256} 
+          style={{ background: '#fff' }}
+          breakpoint="lg"
+          collapsedWidth="0"
+          theme="light"
+        >
           <Menu
             mode="inline"
             selectedKeys={[location.pathname]}

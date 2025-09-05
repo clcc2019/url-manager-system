@@ -6,7 +6,7 @@ WORKDIR /build
 
 # 复制package文件并安装依赖
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci && npm cache clean --force
 
 # 复制源代码
 COPY . .
@@ -20,9 +20,7 @@ FROM nginx:1.25-alpine
 # 安装安全更新
 RUN apk --no-cache upgrade
 
-# 创建非root用户
-RUN addgroup -g 1001 -S nginx && \
-    adduser -S -D -H -u 1001 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx
+# nginx用户已经存在，无需创建
 
 # 复制构建产物
 COPY --from=builder /build/dist /usr/share/nginx/html

@@ -13,7 +13,21 @@ help: ## Show this help
 
 # Development
 dev: ## Start development environment
-	cd deployments/docker && docker-compose -f docker-compose.dev.yml up -d
+	cd deployments/docker && sudo docker compose -f docker-compose.dev.yml up -d
+
+dev-local: ## Start local development environment (no containers for backend/frontend)
+	cd deployments/docker && sudo docker compose -f docker-compose.dev.yml up -d postgres redis
+	@echo "Database services started!"
+	@echo "PostgreSQL: localhost:5432"
+	@echo "Redis: localhost:6379"
+	@echo "Run 'make dev-backend-local' and 'make dev-frontend-local' in separate terminals"
+
+dev-backend-local: ## Start backend in local development mode
+	pkill main || true
+	cd backend && go run cmd/server/main.go
+
+dev-frontend-local: ## Start frontend in local development mode
+	cd frontend && npm run dev -- --host 0.0.0.0 --port 5173
 	@echo "Development environment started!"
 	@echo "Backend: http://localhost:8080"
 	@echo "Frontend: http://localhost:5173"
@@ -21,22 +35,22 @@ dev: ## Start development environment
 	@echo "Redis: localhost:6379"
 
 dev-logs: ## Show development logs
-	cd deployments/docker && docker-compose -f docker-compose.dev.yml logs -f
+	cd deployments/docker && sudo docker compose -f docker-compose.dev.yml logs -f
 
 dev-stop: ## Stop development environment
-	cd deployments/docker && docker-compose -f docker-compose.dev.yml down
+	cd deployments/docker && sudo docker compose -f docker-compose.dev.yml down
 
 dev-clean: ## Clean development environment and volumes
-	cd deployments/docker && docker-compose -f docker-compose.dev.yml down -v
+	cd deployments/docker && sudo docker compose -f docker-compose.dev.yml down -v
 
 # Building
 build: build-backend build-frontend ## Build all Docker images
 
 build-backend: ## Build backend Docker image
-	cd backend && docker build -t $(BACKEND_IMAGE):$(VERSION) .
+	sudo docker build -f backend/Dockerfile -t $(BACKEND_IMAGE):$(VERSION) .
 
 build-frontend: ## Build frontend Docker image
-	cd frontend && docker build -t $(FRONTEND_IMAGE):$(VERSION) .
+	cd frontend && sudo docker build -t $(FRONTEND_IMAGE):$(VERSION) .
 
 build-local: ## Build images for local development
 	./scripts/build-local.sh build
@@ -84,15 +98,15 @@ k8s-template: ## Show Kubernetes templates
 
 # Production
 prod: ## Start production environment
-	cd deployments/docker && docker-compose up -d
+	cd deployments/docker && sudo docker compose up -d
 
 prod-stop: ## Stop production environment
-	cd deployments/docker && docker-compose down
+	cd deployments/docker && sudo docker compose down
 
 # Cleanup
 clean: ## Clean up Docker images and containers
-	docker system prune -f
-	docker volume prune -f
+	sudo docker system prune -f
+	sudo docker volume prune -f
 
 # Security
 security-scan: ## Run security scans
@@ -108,7 +122,7 @@ docs: ## Generate documentation
 
 # Monitoring
 monitor: ## Start monitoring stack (Prometheus + Grafana)
-	cd deployments/monitoring && docker-compose up -d
+	cd deployments/monitoring && sudo docker compose up -d
 
 monitor-stop: ## Stop monitoring stack
-	cd deployments/monitoring && docker-compose down
+	cd deployments/monitoring && sudo docker compose down

@@ -41,7 +41,7 @@ url-manager-system/
 │   │   │   └── Chart.yaml
 │   │   └── dependencies/              # 依赖服务Charts
 │   ├── k8s/                          # 原生K8s YAML
-│   └── docker-compose.yml            # 本地开发环境
+│   └── docker compose.yml            # 本地开发环境
 ├── docs/
 │   ├── api.md                        # API文档
 │   ├── deployment.md                 # 部署指南

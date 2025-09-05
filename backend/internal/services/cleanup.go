@@ -76,7 +76,12 @@ func (s *CleanupService) runCleanup() {
 
 	logrus.Info("Starting cleanup process")
 
-	// 获取过期的URL
+	// 1. 先进行数据校验和清理
+	if err := s.ValidateAndCleanupData(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to validate and cleanup data")
+	}
+
+	// 2. 获取过期的URL
 	expiredURLs, err := s.getExpiredURLs(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get expired URLs")
@@ -90,7 +95,7 @@ func (s *CleanupService) runCleanup() {
 
 	logrus.WithField("count", len(expiredURLs)).Info("Found expired URLs")
 
-	// 清理每个过期的URL
+	// 3. 清理每个过期的URL
 	for _, url := range expiredURLs {
 		if err := s.cleanupURL(ctx, &url); err != nil {
 			logrus.WithError(err).WithField("url_id", url.ID).Error("Failed to cleanup URL")
@@ -194,6 +199,12 @@ func (s *CleanupService) cleanupURL(ctx context.Context, url *models.EphemeralUR
 
 // deleteKubernetesResources 删除Kubernetes资源
 func (s *CleanupService) deleteKubernetesResources(ctx context.Context, url *models.EphemeralURL) error {
+	// 检查Kubernetes资源管理器是否可用
+	if s.resourceManager == nil || s.ingressManager == nil {
+		logrus.Warn("Kubernetes managers not available, skipping Kubernetes resource deletion")
+		return nil
+	}
+
 	var errors []error
 
 	// 从Ingress移除路径
@@ -302,4 +313,219 @@ func (s *CleanupService) getURLWithProject(ctx context.Context, id uuid.UUID) (*
 	}
 
 	return url, nil
+}
+
+// ValidateAndCleanupData 校验并清理数据
+func (s *CleanupService) ValidateAndCleanupData(ctx context.Context) error {
+	logrus.Info("Starting data validation and cleanup")
+
+	// 1. 清理孤儿URL（没有对应项目的URL）
+	if err := s.cleanupOrphanURLs(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to cleanup orphan URLs")
+	}
+
+	// 2. 校验并修复URL状态
+	if err := s.validateAndFixURLStatus(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to validate URL status")
+	}
+
+	// 3. 清理长时间处于中间状态的URL
+	if err := s.cleanupStuckURLs(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to cleanup stuck URLs")
+	}
+
+	// 4. 强制清理已过期但状态异常的URL
+	if err := s.forceCleanupExpiredURLs(ctx); err != nil {
+		logrus.WithError(err).Error("Failed to force cleanup expired URLs")
+	}
+
+	logrus.Info("Data validation and cleanup completed")
+	return nil
+}
+
+// cleanupOrphanURLs 清理孤儿URL
+func (s *CleanupService) cleanupOrphanURLs(ctx context.Context) error {
+	query := `
+		DELETE FROM ephemeral_urls 
+		WHERE project_id NOT IN (SELECT id FROM projects)
+	`
+	result, err := s.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup orphan URLs: %w", err)
+	}
+
+	affected, _ := result.RowsAffected()
+	if affected > 0 {
+		logrus.WithField("count", affected).Info("Cleaned up orphan URLs")
+	}
+
+	return nil
+}
+
+// validateAndFixURLStatus 校验并修复URL状态
+func (s *CleanupService) validateAndFixURLStatus(ctx context.Context) error {
+	// 获取所有非deleted状态的URL
+	query := `
+		SELECT eu.id, eu.status, eu.k8s_deployment_name, eu.created_at,
+		       p.name as project_name
+		FROM ephemeral_urls eu
+		INNER JOIN projects p ON eu.project_id = p.id
+		WHERE eu.status IN ('creating', 'active', 'draft', 'failed')
+		ORDER BY eu.created_at DESC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to query URLs for validation: %w", err)
+	}
+	defer rows.Close()
+
+	var fixedCount int
+	for rows.Next() {
+		var urlID uuid.UUID
+		var status, projectName string
+		var deploymentName *string
+		var createdAt time.Time
+
+		err := rows.Scan(&urlID, &status, &deploymentName, &createdAt, &projectName)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to scan URL for validation")
+			continue
+		}
+
+		// 检查K8s资源状态
+		if deploymentName != nil && s.resourceManager != nil {
+			ready, err := s.resourceManager.CheckDeploymentReady(ctx, *deploymentName)
+			if err != nil {
+				// Deployment不存在，根据环境和状态决定处理方式
+				if s.config.Environment == "development" {
+					// 开发环境：设置为draft状态
+					if status != "draft" {
+						s.updateURLStatus(ctx, urlID, "draft", "")
+						fixedCount++
+						logrus.WithFields(logrus.Fields{
+							"url_id":     urlID,
+							"old_status": status,
+						}).Info("Fixed URL status to draft (development)")
+					}
+				} else {
+					// 生产环境：设置为failed状态
+					if status != "failed" {
+						s.updateURLStatus(ctx, urlID, models.StatusFailed, "Kubernetes deployment not found")
+						fixedCount++
+						logrus.WithFields(logrus.Fields{
+							"url_id":     urlID,
+							"old_status": status,
+						}).Info("Fixed URL status to failed (missing deployment)")
+					}
+				}
+			} else if ready && status != "active" {
+				// Deployment就绪但状态不是active
+				s.updateURLStatus(ctx, urlID, models.StatusActive, "")
+				fixedCount++
+				logrus.WithFields(logrus.Fields{
+					"url_id":     urlID,
+					"old_status": status,
+				}).Info("Fixed URL status to active")
+			}
+		}
+	}
+
+	if fixedCount > 0 {
+		logrus.WithField("count", fixedCount).Info("Fixed URL statuses")
+	}
+
+	// 物理删除已标记为deleted且超过1小时的记录
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM ephemeral_urls 
+		WHERE status = 'deleted' AND updated_at < NOW() - INTERVAL '1 hour'
+	`)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to physically delete old URLs")
+	} else {
+		if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+			logrus.WithField("deleted_count", rowsAffected).Info("Physically deleted old URL records")
+		}
+	}
+
+	return nil
+}
+
+// cleanupStuckURLs 清理长时间处于中间状态的URL
+func (s *CleanupService) cleanupStuckURLs(ctx context.Context) error {
+	// 清理超过30分钟还在creating状态的URL
+	stuckThreshold := time.Now().Add(-30 * time.Minute)
+
+	query := `
+		UPDATE ephemeral_urls 
+		SET status = 'failed', 
+		    error_message = 'Stuck in creating state for too long',
+		    updated_at = NOW()
+		WHERE status = 'creating' 
+		  AND created_at < $1
+	`
+
+	result, err := s.db.ExecContext(ctx, query, stuckThreshold)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup stuck URLs: %w", err)
+	}
+
+	affected, _ := result.RowsAffected()
+	if affected > 0 {
+		logrus.WithField("count", affected).Info("Cleaned up stuck URLs")
+	}
+
+	return nil
+}
+
+// forceCleanupExpiredURLs 强制清理已过期的URL
+func (s *CleanupService) forceCleanupExpiredURLs(ctx context.Context) error {
+	// 获取所有过期但状态不是deleted的URL
+	query := `
+		SELECT eu.id, eu.project_id, eu.path, eu.image, eu.env, eu.replicas, eu.resources,
+		       eu.status, eu.k8s_deployment_name, eu.k8s_service_name, eu.k8s_secret_name,
+		       eu.error_message, eu.expire_at, eu.created_at, eu.updated_at,
+		       p.id, p.name, p.description, p.created_at, p.updated_at
+		FROM ephemeral_urls eu
+		INNER JOIN projects p ON eu.project_id = p.id
+		WHERE eu.expire_at <= NOW() 
+		  AND eu.status != 'deleted'
+		ORDER BY eu.expire_at ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to query expired URLs: %w", err)
+	}
+	defer rows.Close()
+
+	var cleanedCount int
+	for rows.Next() {
+		var url models.EphemeralURL
+		url.Project = &models.Project{}
+
+		err := rows.Scan(
+			&url.ID, &url.ProjectID, &url.Path, &url.Image, &url.Env, &url.Replicas, &url.Resources,
+			&url.Status, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
+			&url.ErrorMessage, &url.ExpireAt, &url.CreatedAt, &url.UpdatedAt,
+			&url.Project.ID, &url.Project.Name, &url.Project.Description, &url.Project.CreatedAt, &url.Project.UpdatedAt,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to scan expired URL")
+			continue
+		}
+
+		// 强制清理
+		if err := s.cleanupURL(ctx, &url); err != nil {
+			logrus.WithError(err).WithField("url_id", url.ID).Error("Failed to force cleanup expired URL")
+		} else {
+			cleanedCount++
+		}
+	}
+
+	if cleanedCount > 0 {
+		logrus.WithField("count", cleanedCount).Info("Force cleaned up expired URLs")
+	}
+
+	return nil
 }

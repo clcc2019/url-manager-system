@@ -1,5 +1,4 @@
 package integration
-package integration
 
 import (
 	"bytes"
@@ -7,9 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"url-manager-system/backend/internal/api/routes"
 	"url-manager-system/backend/internal/config"
-	"url-manager-system/backend/internal/services"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -76,11 +73,11 @@ func setupTestRouter() http.Handler {
 			})
 			return
 		}
-		
+
 		if r.URL.Path == "/api/v1/projects" && r.Method == "POST" {
 			var req map[string]interface{}
 			json.NewDecoder(r.Body).Decode(&req)
-			
+
 			// 简单验证
 			if name, ok := req["name"].(string); ok && name != "" {
 				w.Header().Set("Content-Type", "application/json")
@@ -94,12 +91,12 @@ func setupTestRouter() http.Handler {
 				})
 				return
 			}
-			
+
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "name is required"})
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusNotFound)
 	})
 }
@@ -112,7 +109,7 @@ func (suite *APITestSuite) TestHealthCheck() {
 	suite.router.ServeHTTP(rr, req)
 
 	assert.Equal(suite.T(), http.StatusOK, rr.Code)
-	
+
 	var response map[string]string
 	err := json.Unmarshal(rr.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -157,12 +154,12 @@ func (suite *APITestSuite) TestCreateProject() {
 			payload, _ := json.Marshal(tt.payload)
 			req, _ := http.NewRequest("POST", "/api/v1/projects", bytes.NewBuffer(payload))
 			req.Header.Set("Content-Type", "application/json")
-			
+
 			rr := httptest.NewRecorder()
 			suite.router.ServeHTTP(rr, req)
 
 			assert.Equal(t, tt.expectedStatus, rr.Code)
-			
+
 			if tt.expectedStatus == http.StatusCreated {
 				var response map[string]interface{}
 				err := json.Unmarshal(rr.Body.Bytes(), &response)
@@ -184,7 +181,7 @@ func (suite *APITestSuite) TestSecurityHeaders() {
 
 	// 检查安全相关的响应头
 	headers := rr.Header()
-	
+
 	// 这些头应该在实际的中间件中设置
 	expectedHeaders := map[string]string{
 		"X-Frame-Options":        "DENY",
@@ -195,6 +192,7 @@ func (suite *APITestSuite) TestSecurityHeaders() {
 	for header, expectedValue := range expectedHeaders {
 		// 在实际测试中，这些头应该被设置
 		// assert.Equal(suite.T(), expectedValue, headers.Get(header))
+		_ = header
 		_ = expectedValue
 		_ = headers
 	}
@@ -209,7 +207,7 @@ func (suite *APITestSuite) TestRateLimit() {
 		rr := httptest.NewRecorder()
 
 		suite.router.ServeHTTP(rr, req)
-		
+
 		// 在实际实现中，前几个请求应该成功，后续请求可能被限制
 		// 这里只是示例测试结构
 		assert.True(suite.T(), rr.Code == http.StatusOK || rr.Code == http.StatusTooManyRequests)

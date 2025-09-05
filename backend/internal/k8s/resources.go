@@ -2,10 +2,12 @@ package k8s
 
 import (
 	"context"
+	"fmt"
 	"url-manager-system/backend/internal/db/models"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -27,6 +29,9 @@ func NewResourceManager(client *Client, namespace string) *ResourceManager {
 
 // CreateDeployment 创建Deployment
 func (rm *ResourceManager) CreateDeployment(ctx context.Context, url *models.EphemeralURL) error {
+	if rm.client == nil {
+		return fmt.Errorf("Kubernetes client not available")
+	}
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      *url.K8sDeploymentName,
@@ -188,19 +193,34 @@ func (rm *ResourceManager) CreateSecret(ctx context.Context, url *models.Ephemer
 // DeleteDeployment 删除Deployment
 func (rm *ResourceManager) DeleteDeployment(ctx context.Context, name string) error {
 	deletePolicy := metav1.DeletePropagationForeground
-	return rm.client.GetClientset().AppsV1().Deployments(rm.namespace).Delete(ctx, name, metav1.DeleteOptions{
+	err := rm.client.GetClientset().AppsV1().Deployments(rm.namespace).Delete(ctx, name, metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	})
+	if err != nil && errors.IsNotFound(err) {
+		// 资源不存在，忽略错误
+		return nil
+	}
+	return err
 }
 
 // DeleteService 删除Service
 func (rm *ResourceManager) DeleteService(ctx context.Context, name string) error {
-	return rm.client.GetClientset().CoreV1().Services(rm.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	err := rm.client.GetClientset().CoreV1().Services(rm.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && errors.IsNotFound(err) {
+		// 资源不存在，忽略错误
+		return nil
+	}
+	return err
 }
 
 // DeleteSecret 删除Secret
 func (rm *ResourceManager) DeleteSecret(ctx context.Context, name string) error {
-	return rm.client.GetClientset().CoreV1().Secrets(rm.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	err := rm.client.GetClientset().CoreV1().Secrets(rm.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && errors.IsNotFound(err) {
+		// 资源不存在，忽略错误
+		return nil
+	}
+	return err
 }
 
 // CheckDeploymentReady 检查Deployment是否就绪

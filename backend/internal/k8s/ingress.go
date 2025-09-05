@@ -54,6 +54,10 @@ func (im *IngressManager) RemovePath(ctx context.Context, projectName, path stri
 
 	ingress, err := im.client.GetClientset().NetworkingV1().Ingresses(im.namespace).Get(ctx, ingressName, metav1.GetOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			// Ingress不存在，忽略错误
+			return nil
+		}
 		return err
 	}
 

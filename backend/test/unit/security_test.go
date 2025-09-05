@@ -1,7 +1,8 @@
-package utils
+package unit
 
 import (
 	"testing"
+	"url-manager-system/backend/internal/utils"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -24,7 +25,7 @@ func TestValidateImageName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ValidateImageName(tt.image)
+			result := utils.ValidateImageName(tt.image)
 			assert.Equal(t, tt.expected, result, "Image: %s", tt.image)
 		})
 	}
@@ -48,7 +49,7 @@ func TestValidateResourceString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ValidateResourceString(tt.resource)
+			result := utils.ValidateResourceString(tt.resource)
 			assert.Equal(t, tt.expected, result, "Resource: %s", tt.resource)
 		})
 	}
@@ -70,7 +71,7 @@ func TestSanitizeInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SanitizeInput(tt.input)
+			result := utils.SanitizeInput(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -94,7 +95,7 @@ func TestValidateEnvironmentVariableName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ValidateEnvironmentVariableName(tt.envName)
+			result := utils.ValidateEnvironmentVariableName(tt.envName)
 			assert.Equal(t, tt.expected, result, "EnvName: %s", tt.envName)
 		})
 	}
@@ -118,7 +119,7 @@ func TestIsValidProjectName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := IsValidProjectName(tt.projectName)
+			result := utils.IsValidProjectName(tt.projectName)
 			assert.Equal(t, tt.expected, result, "ProjectName: %s", tt.projectName)
 		})
 	}
@@ -140,7 +141,7 @@ func TestSecureCompare(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SecureCompare(tt.a, tt.b)
+			result := utils.SecureCompare(tt.a, tt.b)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

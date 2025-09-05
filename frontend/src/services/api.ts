@@ -1,5 +1,5 @@
-import axios, { AxiosResponse } from 'axios';
-import {
+import axios from 'axios';
+import type {
   Project,
   EphemeralURL,
   CreateProjectRequest,
@@ -8,9 +8,9 @@ import {
   ListProjectsResponse,
   ListURLsResponse,
   PaginationParams,
-} from '../types/api';
+} from '../types/api.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080/api/v1';
 
 // 创建axios实例
 const apiClient = axios.create({
@@ -32,24 +32,24 @@ apiClient.interceptors.response.use(
 export class ApiService {
   // 项目管理 API
   static async getProjects(params?: PaginationParams): Promise<ListProjectsResponse> {
-    const response: AxiosResponse<ListProjectsResponse> = await apiClient.get('/projects', {
+    const response = await apiClient.get('/projects', {
       params,
     });
     return response.data;
   }
 
   static async getProject(id: string): Promise<Project> {
-    const response: AxiosResponse<Project> = await apiClient.get(`/projects/${id}`);
+    const response = await apiClient.get(`/projects/${id}`);
     return response.data;
   }
 
   static async createProject(data: CreateProjectRequest): Promise<Project> {
-    const response: AxiosResponse<Project> = await apiClient.post('/projects', data);
+    const response = await apiClient.post('/projects', data);
     return response.data;
   }
 
   static async updateProject(id: string, data: CreateProjectRequest): Promise<Project> {
-    const response: AxiosResponse<Project> = await apiClient.put(`/projects/${id}`, data);
+    const response = await apiClient.put(`/projects/${id}`, data);
     return response.data;
   }
 
@@ -62,7 +62,7 @@ export class ApiService {
     projectId: string,
     params?: PaginationParams
   ): Promise<ListURLsResponse> {
-    const response: AxiosResponse<ListURLsResponse> = await apiClient.get(
+    const response = await apiClient.get(
       `/projects/${projectId}/urls`,
       { params }
     );
@@ -73,7 +73,7 @@ export class ApiService {
     projectId: string,
     data: CreateURLRequest
   ): Promise<CreateURLResponse> {
-    const response: AxiosResponse<CreateURLResponse> = await apiClient.post(
+    const response = await apiClient.post(
       `/projects/${projectId}/urls`,
       data
     );
@@ -81,7 +81,7 @@ export class ApiService {
   }
 
   static async getURL(id: string): Promise<EphemeralURL> {
-    const response: AxiosResponse<EphemeralURL> = await apiClient.get(`/urls/${id}`);
+    const response = await apiClient.get(`/urls/${id}`);
     return response.data;
   }
 
@@ -89,9 +89,19 @@ export class ApiService {
     await apiClient.delete(`/urls/${id}`);
   }
 
+  static async deployURL(id: string): Promise<void> {
+    await apiClient.post(`/urls/${id}/deploy`);
+  }
+
   // 健康检查
   static async healthCheck(): Promise<{ status: string; service: string }> {
     const response = await apiClient.get('/health');
+    return response.data;
+  }
+
+  // 数据校验和清理
+  static async validateAndCleanupData(): Promise<{ message: string }> {
+    const response = await apiClient.post('/urls/validate-cleanup');
     return response.data;
   }
 }

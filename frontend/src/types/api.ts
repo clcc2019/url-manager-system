@@ -29,7 +29,7 @@ export interface EphemeralURL {
   env: EnvironmentVar[];
   replicas: number;
   resources: ResourceLimits;
-  status: 'creating' | 'active' | 'deleting' | 'deleted' | 'failed';
+  status: 'draft' | 'creating' | 'active' | 'deleting' | 'deleted' | 'failed';
   k8s_deployment_name?: string;
   k8s_service_name?: string;
   k8s_secret_name?: string;

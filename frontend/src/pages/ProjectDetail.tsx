@@ -21,10 +21,11 @@ import {
   DeleteOutlined, 
   ReloadOutlined,
   LinkOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Project, EphemeralURL, CreateURLRequest, EnvironmentVar } from '../types/api';
+import type { Project, EphemeralURL, CreateURLRequest, EnvironmentVar } from '../types/api.js';
 import { ApiService } from '../services/api';
 import { formatDate, getTimeUntilExpiry } from '../utils/date';
 
@@ -119,8 +120,21 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  const handleDeployURL = async (urlId: string) => {
+    try {
+      await ApiService.deployURL(urlId);
+      message.success('URL部署成功');
+      fetchURLs();
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error || 'URL部署失败';
+      message.error(errorMsg);
+    }
+  };
+
+
   const getStatusTag = (status: string) => {
     const statusConfig = {
+      draft: { color: 'default', text: '草稿' },
       creating: { color: 'processing', text: '创建中' },
       active: { color: 'success', text: '运行中' },
       deleting: { color: 'warning', text: '删除中' },
@@ -195,6 +209,16 @@ const ProjectDetail: React.FC = () => {
       width: 120,
       render: (_: any, record: EphemeralURL) => (
         <Space>
+          {(record.status === 'draft' || record.status === 'failed') && (
+            <Button
+              type="primary"
+              icon={<RocketOutlined />}
+              size="small"
+              onClick={() => handleDeployURL(record.id)}
+            >
+              {record.status === 'failed' ? '重新部署' : '部署'}
+            </Button>
+          )}
           {record.status !== 'deleted' && (
             <Popconfirm
               title="确定要删除这个URL吗？"

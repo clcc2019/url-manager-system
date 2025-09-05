@@ -67,6 +67,8 @@ func setupURLRoutes(api *gin.RouterGroup, serviceContainer *services.Container) 
 	{
 		urls.GET("/:id", urlHandler.GetEphemeralURL)
 		urls.DELETE("/:id", urlHandler.DeleteEphemeralURL)
+		urls.POST("/:id/deploy", urlHandler.DeployURL)
+		urls.POST("/validate-cleanup", urlHandler.ValidateAndCleanupData)
 		// urls.GET("/path/:path", urlHandler.GetURLByPath) // 可选：根据路径查询
 	}
 }

@@ -155,3 +155,37 @@ func (h *URLHandler) GetURLByPath(c *gin.Context) {
 	// 为了简化，暂时返回未实现
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "Not implemented"})
 }
+
+// DeployURL 部署URL到Kubernetes集群
+func (h *URLHandler) DeployURL(c *gin.Context) {
+	urlIDStr := c.Param("id")
+	urlID, err := uuid.Parse(urlIDStr)
+	if err != nil {
+		logrus.WithError(err).Error("Invalid URL ID format")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL ID format"})
+		return
+	}
+
+	err = h.urlService.DeployURL(c.Request.Context(), urlID)
+	if err != nil {
+		logrus.WithError(err).WithField("url_id", urlID).Error("Failed to deploy URL")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	logrus.WithField("url_id", urlID).Info("URL deployment initiated")
+	c.JSON(http.StatusOK, gin.H{"message": "URL deployment initiated successfully"})
+}
+
+// ValidateAndCleanupData 校验并清理数据
+func (h *URLHandler) ValidateAndCleanupData(c *gin.Context) {
+	err := h.cleanupService.ValidateAndCleanupData(c.Request.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to validate and cleanup data")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate and cleanup data"})
+		return
+	}
+
+	logrus.Info("Data validation and cleanup completed successfully")
+	c.JSON(http.StatusOK, gin.H{"message": "Data validation and cleanup completed successfully"})
+}

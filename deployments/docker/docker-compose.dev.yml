@@ -1,6 +1,4 @@
 # Development environment with hot reload
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -13,6 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../k8s/init-scripts:/docker-entrypoint-initdb.d
+    network_mode: host
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -25,6 +24,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    network_mode: host
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -53,19 +53,21 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ../../backend:/app
+      - ../..:/workspace
       - go_modules:/go/pkg/mod
     command: >
       sh -c "
         apk add --no-cache git &&
+        cd /workspace &&
         go mod download &&
+        cd backend &&
         go run cmd/server/main.go
       "
     restart: unless-stopped
 
   # 前端开发服务
   frontend-dev:
-    image: node:18-alpine
+    image: node:20-alpine
     working_dir: /app
     ports:
       - "5173:5173"

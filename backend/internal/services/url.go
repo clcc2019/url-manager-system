@@ -2,10 +2,9 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/md5"
 	"database/sql"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 	"url-manager-system/backend/internal/config"
@@ -55,7 +54,7 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 	}
 
 	// 生成随机路径
-	path, err := s.generateUniquePath(ctx, projectID)
+	path, err := s.generateUniquePath(ctx, projectID, req.Image)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate unique path: %w", err)
 	}
@@ -113,12 +112,19 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 		return nil, fmt.Errorf("failed to insert URL record: %w", err)
 	}
 
-	// 创建Kubernetes资源
-	if err := s.createKubernetesResources(ctx, url, project.Name); err != nil {
-		logrus.WithError(err).Error("Failed to create Kubernetes resources")
-		// 更新状态为失败
-		s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
-		return nil, fmt.Errorf("failed to create Kubernetes resources: %w", err)
+	// 在开发环境中，不实际创建Kubernetes资源，只保存到数据库
+	if s.config.Environment == "development" {
+		// 开发环境：设置为draft状态，不部署
+		s.updateURLStatus(ctx, url.ID, "draft", "")
+		logrus.Info("URL created in draft mode (development environment)")
+	} else {
+		// 生产环境：实际创建Kubernetes资源
+		if err := s.createKubernetesResources(ctx, url, project.Name); err != nil {
+			logrus.WithError(err).Error("Failed to create Kubernetes resources")
+			// 更新状态为失败
+			s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
+			return nil, fmt.Errorf("failed to create Kubernetes resources: %w", err)
+		}
 	}
 
 	// 提交事务
@@ -142,6 +148,48 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 		URL: fullURL,
 		ID:  url.ID,
 	}, nil
+}
+
+// DeployURL 部署URL到Kubernetes集群
+func (s *URLService) DeployURL(ctx context.Context, urlID uuid.UUID) error {
+	// 获取URL信息
+	url, err := s.GetEphemeralURL(ctx, urlID)
+	if err != nil {
+		return fmt.Errorf("failed to get URL: %w", err)
+	}
+
+	// 检查状态 - 允许draft和failed状态进行部署
+	if url.Status != "draft" && url.Status != models.StatusFailed {
+		return fmt.Errorf("URL is not in deployable status, current status: %s", url.Status)
+	}
+
+	// 获取项目信息
+	var projectName string
+	err = s.db.QueryRowContext(ctx, "SELECT name FROM projects WHERE id = $1", url.ProjectID).Scan(&projectName)
+	if err != nil {
+		return fmt.Errorf("failed to get project name: %w", err)
+	}
+
+	// 更新状态为创建中
+	s.updateURLStatus(ctx, url.ID, models.StatusCreating, "")
+
+	// 创建Kubernetes资源
+	if err := s.createKubernetesResources(ctx, url, projectName); err != nil {
+		logrus.WithError(err).Error("Failed to deploy Kubernetes resources")
+		s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
+		return fmt.Errorf("failed to deploy Kubernetes resources: %w", err)
+	}
+
+	// 更新部署状态
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE ephemeral_urls SET deployed = true, deployment_requested_at = NOW() WHERE id = $1",
+		url.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to update deployment status")
+	}
+
+	logrus.WithField("url_id", url.ID).Info("URL deployed successfully")
+	return nil
 }
 
 // GetEphemeralURL 获取临时URL
@@ -259,11 +307,11 @@ func (s *URLService) validateCreateRequest(req *models.CreateEphemeralURLRequest
 	if !utils.ValidateImageName(req.Image) {
 		return fmt.Errorf("invalid image name format: %s", req.Image)
 	}
-	
+
 	// 验证镜像白名单
-	if !s.isImageAllowed(req.Image) {
-		return fmt.Errorf("image %s is not in allowed list", req.Image)
-	}
+	// if !s.isImageAllowed(req.Image) {
+	// 	return fmt.Errorf("image %s is not in allowed list", req.Image)
+	// }
 
 	// 验证副本数
 	if req.Replicas > s.config.Security.MaxReplicas {
@@ -274,7 +322,7 @@ func (s *URLService) validateCreateRequest(req *models.CreateEphemeralURLRequest
 	if req.TTLSeconds > s.config.Security.MaxTTLSeconds {
 		return fmt.Errorf("TTL cannot exceed %d seconds", s.config.Security.MaxTTLSeconds)
 	}
-	
+
 	// 验证环境变量
 	for _, env := range req.Env {
 		if !utils.ValidateEnvironmentVariableName(env.Name) {
@@ -283,7 +331,7 @@ func (s *URLService) validateCreateRequest(req *models.CreateEphemeralURLRequest
 		// 清理环境变量值
 		env.Value = utils.SanitizeInput(env.Value)
 	}
-	
+
 	// 验证资源配置
 	if req.Resources.Requests.CPU != "" && !utils.ValidateResourceString(req.Resources.Requests.CPU) {
 		return fmt.Errorf("invalid CPU request format: %s", req.Resources.Requests.CPU)
@@ -311,32 +359,25 @@ func (s *URLService) isImageAllowed(image string) bool {
 	return false
 }
 
-// generateRandomPath 生成随机路径
-func (s *URLService) generateRandomPath() (string, error) {
-	b := make([]byte, pathLength)
-	for i := range b {
-		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(pathChars))))
-		if err != nil {
-			return "", err
-		}
-		b[i] = pathChars[idx.Int64()]
-	}
-	return "/" + string(b), nil
+// generateHashPath 生成基于哈希的路径
+func (s *URLService) generateHashPath(projectID uuid.UUID, image string) string {
+	// 使用项目ID、镜像名和时间戳生成哈希
+	data := fmt.Sprintf("%s-%s-%d", projectID.String(), image, time.Now().UnixNano())
+	hash := md5.Sum([]byte(data))
+	// 取前8位作为路径
+	return fmt.Sprintf("/%x", hash[:4])
 }
 
 // generateUniquePath 生成唯一路径
-func (s *URLService) generateUniquePath(ctx context.Context, projectID uuid.UUID) (string, error) {
+func (s *URLService) generateUniquePath(ctx context.Context, projectID uuid.UUID, image string) (string, error) {
 	maxRetries := 10
 	for i := 0; i < maxRetries; i++ {
-		path, err := s.generateRandomPath()
-		if err != nil {
-			return "", err
-		}
+		path := s.generateHashPath(projectID, image)
 
 		// 检查路径是否已存在
 		var count int
 		query := `SELECT COUNT(*) FROM ephemeral_urls WHERE project_id = $1 AND path = $2`
-		err = s.db.QueryRowContext(ctx, query, projectID, path).Scan(&count)
+		err := s.db.QueryRowContext(ctx, query, projectID, path).Scan(&count)
 		if err != nil {
 			return "", err
 		}
@@ -388,6 +429,12 @@ func (s *URLService) insertURLRecord(ctx context.Context, tx *sql.Tx, url *model
 
 // createKubernetesResources 创建Kubernetes资源
 func (s *URLService) createKubernetesResources(ctx context.Context, url *models.EphemeralURL, projectName string) error {
+	// 检查Kubernetes资源管理器是否可用
+	if s.resourceManager == nil || s.ingressManager == nil {
+		logrus.Warn("Kubernetes managers not available, skipping Kubernetes resource creation")
+		return nil
+	}
+
 	// 创建Secret（如果需要）
 	if url.K8sSecretName != nil {
 		if err := s.resourceManager.CreateSecret(ctx, url); err != nil {

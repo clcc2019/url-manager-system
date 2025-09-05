@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, message, Popconfirm, Typography, Space, Tag } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { Table, Button, message, Popconfirm, Typography, Space, Modal, Form, Input } from 'antd';
+import { PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { Project } from '../types/api';
+import type { Project, CreateProjectRequest } from '../types/api.js';
 import { ApiService } from '../services/api';
 import { formatDate } from '../utils/date';
 
@@ -14,7 +14,10 @@ const ProjectList: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
   const navigate = useNavigate();
+  const [form] = Form.useForm();
 
   const fetchProjects = async (page = 1, size = 10) => {
     setLoading(true);
@@ -44,6 +47,22 @@ const ProjectList: React.FC = () => {
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || '删除失败';
       message.error(errorMsg);
+    }
+  };
+
+  const handleCreateProject = async (values: CreateProjectRequest) => {
+    setCreateLoading(true);
+    try {
+      await ApiService.createProject(values);
+      message.success('项目创建成功');
+      setCreateModalVisible(false);
+      form.resetFields();
+      fetchProjects(current, pageSize);
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error || '创建失败';
+      message.error(errorMsg);
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -122,7 +141,7 @@ const ProjectList: React.FC = () => {
         <Button 
           type="primary" 
           icon={<PlusOutlined />}
-          onClick={() => navigate('/projects/new')}
+          onClick={() => setCreateModalVisible(true)}
         >
           创建项目
         </Button>
@@ -146,6 +165,68 @@ const ProjectList: React.FC = () => {
           },
         }}
       />
+
+      <Modal
+        title="创建项目"
+        open={createModalVisible}
+        onCancel={() => {
+          setCreateModalVisible(false);
+          form.resetFields();
+        }}
+        footer={null}
+        width={600}
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleCreateProject}
+        >
+          <Form.Item
+            label="项目名称"
+            name="name"
+            rules={[
+              { required: true, message: '请输入项目名称' },
+              { min: 2, message: '项目名称至少2个字符' },
+              { max: 50, message: '项目名称不能超过50个字符' }
+            ]}
+          >
+            <Input placeholder="请输入项目名称" />
+          </Form.Item>
+
+          <Form.Item
+            label="项目描述"
+            name="description"
+            rules={[
+              { max: 200, message: '描述不能超过200个字符' }
+            ]}
+          >
+            <Input.TextArea 
+              placeholder="请输入项目描述（可选）" 
+              rows={4}
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                loading={createLoading}
+              >
+                创建项目
+              </Button>
+              <Button 
+                onClick={() => {
+                  setCreateModalVisible(false);
+                  form.resetFields();
+                }}
+              >
+                取消
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };
