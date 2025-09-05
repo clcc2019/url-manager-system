@@ -116,7 +116,7 @@ redis:
   enabled: true
   auth:
     enabled: false
-  mode: standalone
+  architecture: replication
   replica:
     replicaCount: 1
 
@@ -125,6 +125,14 @@ serviceAccount:
   create: true
   annotations: {}
   name: ""
+
+# RBAC configuration
+rbac:
+  # 是否创建RBAC资源
+  create: true
+  # 使用ClusterRole还是Role (true=ClusterRole, false=Role)
+  # ClusterRole允许跨命名空间操作，Role仅限当前命名空间
+  useClusterRole: false
 
 # Pod Security Context
 podSecurityContext:

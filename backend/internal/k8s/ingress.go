@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"url-manager-system/backend/internal/db/models"
+	"url-manager-system/backend/internal/utils"
 
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -32,14 +33,16 @@ func NewIngressManager(client *Client, namespace, ingressClass, domain string) *
 
 // AddPath 向项目的Ingress添加路径
 func (im *IngressManager) AddPath(ctx context.Context, url *models.EphemeralURL, projectName string) error {
-	ingressName := fmt.Sprintf("project-%s-ingress", projectName)
+	// 清理项目名称以符合Kubernetes命名规范
+	sanitizedProjectName := utils.SanitizeKubernetesName(projectName)
+	ingressName := fmt.Sprintf("project-%s-ingress", sanitizedProjectName)
 
 	// 首先尝试获取现有的Ingress
 	ingress, err := im.client.GetClientset().NetworkingV1().Ingresses(im.namespace).Get(ctx, ingressName, metav1.GetOptions{})
 	if err != nil {
 		// 如果Ingress不存在，创建新的
 		if errors.IsNotFound(err) {
-			return im.createProjectIngress(ctx, ingressName, url, projectName)
+			return im.createProjectIngress(ctx, ingressName, url, sanitizedProjectName)
 		}
 		return err
 	}
@@ -50,7 +53,9 @@ func (im *IngressManager) AddPath(ctx context.Context, url *models.EphemeralURL,
 
 // RemovePath 从项目的Ingress中移除路径
 func (im *IngressManager) RemovePath(ctx context.Context, projectName, path string) error {
-	ingressName := fmt.Sprintf("project-%s-ingress", projectName)
+	// 清理项目名称以符合Kubernetes命名规范
+	sanitizedProjectName := utils.SanitizeKubernetesName(projectName)
+	ingressName := fmt.Sprintf("project-%s-ingress", sanitizedProjectName)
 
 	ingress, err := im.client.GetClientset().NetworkingV1().Ingresses(im.namespace).Get(ctx, ingressName, metav1.GetOptions{})
 	if err != nil {
@@ -74,7 +79,7 @@ func (im *IngressManager) createProjectIngress(ctx context.Context, ingressName 
 			Namespace: im.namespace,
 			Labels: map[string]string{
 				"app":        "url-manager-system",
-				"project":    projectName,
+				"project":    utils.SanitizeKubernetesLabel(projectName),
 				"managed-by": "url-manager-system",
 			},
 			Annotations: map[string]string{

@@ -71,3 +71,83 @@ func IsValidProjectName(name string) bool {
 	nameRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 	return nameRegex.MatchString(name)
 }
+
+// SanitizeKubernetesName 将字符串转换为符合Kubernetes RFC 1123规范的名称
+func SanitizeKubernetesName(name string) string {
+	if name == "" {
+		return "unnamed"
+	}
+
+	// 移除前后空格
+	name = strings.TrimSpace(name)
+
+	// 将所有非字母数字字符替换为连字符
+	reg := regexp.MustCompile(`[^a-zA-Z0-9]+`)
+	name = reg.ReplaceAllString(name, "-")
+
+	// 转换为小写
+	name = strings.ToLower(name)
+
+	// 移除开头和结尾的连字符
+	name = strings.Trim(name, "-")
+
+	// 确保不为空
+	if name == "" {
+		return "unnamed"
+	}
+
+	// 确保以字母数字字符开头和结尾
+	if !regexp.MustCompile(`^[a-z0-9]`).MatchString(name) {
+		name = "x" + name
+	}
+	if !regexp.MustCompile(`[a-z0-9]$`).MatchString(name) {
+		name = name + "x"
+	}
+
+	// 限制长度（Kubernetes名称限制为63个字符）
+	if len(name) > 63 {
+		name = name[:63]
+		// 确保截断后仍以字母数字结尾
+		name = strings.TrimRight(name, "-")
+		if name == "" {
+			return "unnamed"
+		}
+	}
+
+	return name
+}
+
+// SanitizeKubernetesLabel 将字符串转换为符合Kubernetes标签规范的值
+func SanitizeKubernetesLabel(value string) string {
+	if value == "" {
+		return ""
+	}
+
+	// 移除前后空格
+	value = strings.TrimSpace(value)
+
+	// 将所有非字母数字、连字符、下划线、点号的字符替换为连字符
+	reg := regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+	value = reg.ReplaceAllString(value, "-")
+
+	// 移除开头和结尾的非字母数字字符
+	value = regexp.MustCompile(`^[^a-zA-Z0-9]+`).ReplaceAllString(value, "")
+	value = regexp.MustCompile(`[^a-zA-Z0-9]+$`).ReplaceAllString(value, "")
+
+	// 确保不为空
+	if value == "" {
+		return "unnamed"
+	}
+
+	// 限制长度（Kubernetes标签值限制为63个字符）
+	if len(value) > 63 {
+		value = value[:63]
+		// 确保截断后仍以字母数字结尾
+		value = regexp.MustCompile(`[^a-zA-Z0-9]+$`).ReplaceAllString(value, "")
+		if value == "" {
+			return "unnamed"
+		}
+	}
+
+	return value
+}
