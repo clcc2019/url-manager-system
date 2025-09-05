@@ -1,6 +1,6 @@
-import React from 'react';
-import { Layout as AntLayout, Menu, Typography, Breadcrumb } from 'antd';
-import { ProjectOutlined, LinkOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Layout as AntLayout, Menu, Typography, Breadcrumb, Button } from 'antd';
+import { ProjectOutlined, LinkOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const { Header, Content, Sider } = AntLayout;
@@ -13,6 +13,22 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [collapsed, setCollapsed] = useState(false);
+
+  // 响应式：窗口宽度小于1024px时自动折叠
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024 && !collapsed) {
+        setCollapsed(true);
+      }
+    };
+
+    // 初始化检查
+    handleResize();
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [collapsed]);
 
   const menuItems = [
     {
@@ -43,21 +59,35 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
       <Header style={{ padding: '0 24px', background: '#fff', boxShadow: '0 1px 4px rgba(0,21,41,.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-          <LinkOutlined style={{ fontSize: '24px', marginRight: '12px', color: '#1890ff' }} />
-          <Title level={3} style={{ margin: 0, color: '#1890ff' }}>
-            URL管理系统
-          </Title>
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+              style={{
+                fontSize: '16px',
+                width: 32,
+                height: 32,
+                marginRight: '12px'
+              }}
+            />
+            <LinkOutlined style={{ fontSize: '24px', marginRight: '12px', color: '#1890ff' }} />
+            <Title level={3} style={{ margin: 0, color: '#1890ff' }}>
+              URL管理系统
+            </Title>
+          </div>
         </div>
       </Header>
       
       <AntLayout>
-        <Sider 
-          width={256} 
+        <Sider
+          width={256}
           style={{ background: '#fff' }}
-          breakpoint="lg"
-          collapsedWidth="0"
+          collapsed={collapsed}
+          collapsedWidth={0}
           theme="light"
+          trigger={null}
         >
           <Menu
             mode="inline"
