@@ -15,8 +15,8 @@ const CreateProject: React.FC = () => {
       await ApiService.createProject(values);
       message.success('项目创建成功');
       navigate('/projects');
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || '创建失败';
+    } catch (error) {
+      const errorMsg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error || '创建失败';
       message.error(errorMsg);
     } finally {
       setLoading(false);

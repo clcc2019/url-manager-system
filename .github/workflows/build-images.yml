@@ -66,7 +66,7 @@ jobs:
     - name: Build and push frontend image
       uses: docker/build-push-action@v5
       with:
-        context: ./frontend
+        context: .
         file: ./frontend/Dockerfile
         platforms: ${{ github.event.inputs.platforms }}
         push: true

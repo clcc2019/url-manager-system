@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
 import { describe, it, expect } from 'vitest';
 import App from '../App';
 

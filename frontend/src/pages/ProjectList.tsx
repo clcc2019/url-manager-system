@@ -28,7 +28,7 @@ const ProjectList: React.FC = () => {
       });
       setProjects(response.projects);
       setTotal(response.total);
-    } catch (error) {
+    } catch {
       message.error('获取项目列表失败');
     } finally {
       setLoading(false);
@@ -44,8 +44,8 @@ const ProjectList: React.FC = () => {
       await ApiService.deleteProject(id);
       message.success('删除成功');
       fetchProjects(current, pageSize);
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || '删除失败';
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || '删除失败';
       message.error(errorMsg);
     }
   };
@@ -58,8 +58,8 @@ const ProjectList: React.FC = () => {
       setCreateModalVisible(false);
       form.resetFields();
       fetchProjects(current, pageSize);
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || '创建失败';
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || '创建失败';
       message.error(errorMsg);
     } finally {
       setCreateLoading(false);
