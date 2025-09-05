@@ -49,6 +49,14 @@ spec:
           env:
             - name: VITE_API_BASE_URL
               value: {{ include "url-manager.backendServiceUrl" . }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "url-manager.fullname" . }}-frontend-nginx
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

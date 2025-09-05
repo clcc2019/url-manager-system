@@ -6,10 +6,10 @@ global:
   
 # Backend configuration
 backend:
-  replicaCount: 2
-  
+  replicaCount: 1
+
   image:
-    repository: url-manager/backend
+    repository: ghcr.io/clcc2019/url-manager-system/backend
     pullPolicy: IfNotPresent
     tag: "latest"
   
@@ -58,10 +58,10 @@ backend:
 
 # Frontend configuration
 frontend:
-  replicaCount: 2
+  replicaCount: 1
   
   image:
-    repository: url-manager/frontend
+    repository: ghcr.io/clcc2019/url-manager-system/frontend
     pullPolicy: IfNotPresent
     tag: "latest"
   
@@ -81,10 +81,8 @@ frontend:
 # Ingress configuration
 ingress:
   enabled: true
-  className: "nginx"
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  className: "traefik"
+  annotations: {}
   hosts:
     - host: url-manager.example.com
       paths:
@@ -94,10 +92,7 @@ ingress:
         - path: /api
           pathType: Prefix
           service: backend
-  tls:
-    - secretName: url-manager-tls
-      hosts:
-        - url-manager.example.com
+  tls: []
 
 # PostgreSQL configuration (using Bitnami chart)
 postgresql:
@@ -109,6 +104,7 @@ postgresql:
     database: "url_manager"
   primary:
     persistence:
+      storageClass: "local-path"
       enabled: true
       size: 10Gi
 
@@ -117,6 +113,7 @@ redis:
   enabled: true
   auth:
     enabled: false
+  mode: standalone
   replica:
     replicaCount: 1
 
