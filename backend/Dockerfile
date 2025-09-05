@@ -28,7 +28,6 @@ FROM gcr.io/distroless/static:nonroot
 # 从构建阶段复制二进制文件
 COPY --from=builder /build/main /
 COPY --from=builder /build/backend/config.yaml ./
-COPY --from=builder /build/backend/internal/db/migrations ./internal/db/migrations
 
 # 复制时区信息
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
