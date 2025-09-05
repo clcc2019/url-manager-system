@@ -435,10 +435,10 @@ func (s *CleanupService) validateAndFixURLStatus(ctx context.Context) error {
 		logrus.WithField("count", fixedCount).Info("Fixed URL statuses")
 	}
 
-	// 物理删除已标记为deleted且超过1小时的记录
+	// 物理删除已标记为deleted的记录（立即删除，不等待）
 	result, err := s.db.ExecContext(ctx, `
-		DELETE FROM ephemeral_urls 
-		WHERE status = 'deleted' AND updated_at < NOW() - INTERVAL '1 hour'
+		DELETE FROM ephemeral_urls
+		WHERE status = 'deleted'
 	`)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to physically delete old URLs")
