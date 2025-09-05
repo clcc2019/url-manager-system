@@ -52,6 +52,22 @@ spec:
           env:
             - name: DEBUG
               value: {{ .Values.backend.env.DEBUG | default "false" | quote }}
+            - name: DATABASE_HOST
+              value: {{ include "url-manager.databaseHost" . }}
+            - name: DATABASE_PORT
+              value: {{ include "url-manager.databasePort" . | quote }}
+            - name: DATABASE_USER
+              value: {{ include "url-manager.databaseUser" . }}
+            - name: DATABASE_PASSWORD
+              value: {{ include "url-manager.databasePassword" . }}
+            - name: DATABASE_NAME
+              value: {{ include "url-manager.databaseName" . }}
+            - name: REDIS_ADDRESS
+              value: {{ include "url-manager.redisAddress" . }}
+            - name: K8S_IN_CLUSTER
+              value: {{ .Values.backend.config.k8s.in_cluster | quote }}
+            - name: DEFAULT_DOMAIN
+              value: {{ .Values.backend.config.k8s.default_domain | quote }}
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml

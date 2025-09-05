@@ -114,3 +114,65 @@ Redis Address
 {{- .Values.backend.config.redis.address }}
 {{- end }}
 {{- end }}
+
+{{/*
+Database Host
+*/}}
+{{- define "url-manager.databaseHost" -}}
+{{- if .Values.postgresql.enabled }}
+{{- printf "%s-postgresql" .Release.Name }}
+{{- else }}
+{{- .Values.backend.config.database.host | default "localhost" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database Port
+*/}}
+{{- define "url-manager.databasePort" -}}
+{{- if .Values.postgresql.enabled }}
+{{- "5432" }}
+{{- else }}
+{{- .Values.backend.config.database.port | default "5432" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database User
+*/}}
+{{- define "url-manager.databaseUser" -}}
+{{- if .Values.postgresql.enabled }}
+{{- .Values.postgresql.auth.username }}
+{{- else }}
+{{- .Values.backend.config.database.user | default "postgres" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database Password
+*/}}
+{{- define "url-manager.databasePassword" -}}
+{{- if .Values.postgresql.enabled }}
+{{- .Values.postgresql.auth.password }}
+{{- else }}
+{{- .Values.backend.config.database.password | default "postgres" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database Name
+*/}}
+{{- define "url-manager.databaseName" -}}
+{{- if .Values.postgresql.enabled }}
+{{- .Values.postgresql.auth.database }}
+{{- else }}
+{{- .Values.backend.config.database.name | default "url_manager" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Backend Service URL for frontend
+*/}}
+{{- define "url-manager.backendServiceUrl" -}}
+{{- printf "http://%s-backend:%d/api/v1" (include "url-manager.fullname" .) .Values.backend.service.port }}
+{{- end }}

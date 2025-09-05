@@ -4,6 +4,10 @@ FROM node:18-alpine AS builder
 # 设置工作目录
 WORKDIR /build
 
+# 设置构建时的环境变量
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
 # 复制package文件并安装依赖
 COPY frontend/package*.json ./
 RUN npm ci && npm cache clean --force
