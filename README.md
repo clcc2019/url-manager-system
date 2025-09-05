@@ -2,6 +2,10 @@
 
 一个基于Kubernetes的URL管理系统，支持项目管理、动态URL路由和资源生命周期管理。
 
+## 预览
+
+![URL Manager System 预览](images/preview.png)
+
 ## 功能特性
 
 - **项目管理**: 支持创建和管理项目，逻辑分组不同业务的URL
@@ -38,6 +42,7 @@ url-manager-system/
 ├── frontend/          # React前端应用
 ├── deployments/       # Helm Charts和部署配置
 ├── docs/             # 文档
+├── images/           # 项目图片和截图
 └── README.md
 ```
 
