@@ -4,10 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"url-manager-system/backend/internal/config"
+	"url-manager-system/backend/internal/db/migrations"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
@@ -61,8 +62,15 @@ func RunMigrations(databaseURL string) error {
 		return err
 	}
 
-	m, err := migrate.NewWithDatabaseInstance(
-		"file:///internal/db/migrations",
+	// Use embedded migrations
+	sourceDriver, err := iofs.New(migrations.Migrations, ".")
+	if err != nil {
+		return err
+	}
+
+	m, err := migrate.NewWithInstance(
+		"iofs",
+		sourceDriver,
 		"postgres",
 		driver,
 	)
