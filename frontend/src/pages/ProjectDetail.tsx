@@ -151,72 +151,79 @@ const ProjectDetail: React.FC = () => {
       title: 'URL路径',
       dataIndex: 'path',
       key: 'path',
+      width: window.innerWidth < 768 ? 150 : undefined,
       render: (path: string, record: EphemeralURL) => {
         if (record.status === 'active') {
           return (
-            <Button 
-              type="link" 
+            <Button
+              type="link"
               icon={<LinkOutlined />}
               onClick={() => window.open(`https://example.com${path}`, '_blank')}
-              style={{ padding: 0 }}
+              style={{ padding: 0, fontSize: window.innerWidth < 768 ? '12px' : undefined }}
             >
-              {path}
+              {window.innerWidth < 768 ? path.substring(0, 20) + '...' : path}
             </Button>
           );
         }
-        return <Text code>{path}</Text>;
+        return <Text code style={{ fontSize: window.innerWidth < 768 ? '12px' : undefined }}>{path}</Text>;
       },
     },
-    {
+    ...(window.innerWidth < 768 ? [] : [{
       title: '镜像',
       dataIndex: 'image',
       key: 'image',
       ellipsis: true,
-    },
+    }]),
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: window.innerWidth < 768 ? 80 : undefined,
       render: (status: string) => getStatusTag(status),
     },
-    {
+    ...(window.innerWidth < 768 ? [] : [{
       title: '副本数',
       dataIndex: 'replicas',
       key: 'replicas',
-    },
+    }]),
     {
-      title: '过期时间',
+      title: window.innerWidth < 768 ? '过期' : '过期时间',
       dataIndex: 'expire_at',
       key: 'expire_at',
+      width: window.innerWidth < 768 ? 100 : undefined,
       render: (expireAt: string) => (
-        <Space direction="vertical" size="small">
-          <Text>{formatDate(expireAt)}</Text>
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            <ClockCircleOutlined /> {getTimeUntilExpiry(expireAt)}
+        <Space direction={window.innerWidth < 768 ? 'horizontal' : 'vertical'} size="small">
+          <Text style={{ fontSize: window.innerWidth < 768 ? '12px' : undefined }}>
+            {window.innerWidth < 768 ? expireAt.split('T')[0] : formatDate(expireAt)}
           </Text>
+          {window.innerWidth >= 768 && (
+            <Text type="secondary" style={{ fontSize: '12px' }}>
+              <ClockCircleOutlined /> {getTimeUntilExpiry(expireAt)}
+            </Text>
+          )}
         </Space>
       ),
     },
-    {
+    ...(window.innerWidth < 768 ? [] : [{
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
       render: (text: string) => formatDate(text),
-    },
+    }]),
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: window.innerWidth < 768 ? 120 : 120,
       render: (_: any, record: EphemeralURL) => (
-        <Space>
+        <Space size={window.innerWidth < 768 ? 'small' : 'middle'}>
           {(record.status === 'draft' || record.status === 'failed') && (
             <Button
               type="primary"
               icon={<RocketOutlined />}
-              size="small"
+              size={window.innerWidth < 768 ? 'small' : 'small'}
               onClick={() => handleDeployURL(record.id)}
             >
-              {record.status === 'failed' ? '重新部署' : '部署'}
+              {window.innerWidth < 768 ? '' : (record.status === 'failed' ? '重新部署' : '部署')}
             </Button>
           )}
           {record.status !== 'deleted' && (
@@ -230,9 +237,9 @@ const ProjectDetail: React.FC = () => {
               <Button
                 danger
                 icon={<DeleteOutlined />}
-                size="small"
+                size={window.innerWidth < 768 ? 'small' : 'small'}
               >
-                删除
+                {window.innerWidth < 768 ? '' : '删除'}
               </Button>
             </Popconfirm>
           )}
@@ -256,25 +263,36 @@ const ProjectDetail: React.FC = () => {
 
   return (
     <div>
-      <Card 
-        title={<Title level={2} style={{ margin: 0 }}>{project.name}</Title>}
+      <Card
+        title={
+          <Title
+            level={window.innerWidth < 768 ? 3 : 2}
+            style={{
+              margin: 0,
+              fontSize: window.innerWidth < 768 ? '18px' : undefined
+            }}
+          >
+            {project.name}
+          </Title>
+        }
         extra={
-          <Button 
+          <Button
             icon={<ReloadOutlined />}
             onClick={() => {
               fetchProject();
               fetchURLs();
             }}
+            size={window.innerWidth < 768 ? 'small' : 'middle'}
           >
-            刷新
+            {window.innerWidth < 768 ? '' : '刷新'}
           </Button>
         }
       >
-        <Descriptions column={2}>
+        <Descriptions column={window.innerWidth < 768 ? 1 : 2}>
           <Descriptions.Item label="项目ID">{project.id}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{formatDate(project.created_at)}</Descriptions.Item>
           <Descriptions.Item label="更新时间">{formatDate(project.updated_at)}</Descriptions.Item>
-          <Descriptions.Item label="描述" span={2}>
+          <Descriptions.Item label="描述" span={window.innerWidth < 768 ? 1 : 2}>
             <Paragraph>{project.description || '无描述'}</Paragraph>
           </Descriptions.Item>
         </Descriptions>
@@ -282,15 +300,16 @@ const ProjectDetail: React.FC = () => {
 
       <Divider />
 
-      <Card 
-        title="URL 列表"
+      <Card
+        title={<span style={{ fontSize: window.innerWidth < 768 ? '16px' : '18px' }}>URL 列表</span>}
         extra={
-          <Button 
-            type="primary" 
+          <Button
+            type="primary"
             icon={<PlusOutlined />}
             onClick={() => setCreateModalVisible(true)}
+            size={window.innerWidth < 768 ? 'small' : 'middle'}
           >
-            创建URL
+            {window.innerWidth < 768 ? '' : '创建URL'}
           </Button>
         }
       >
@@ -299,11 +318,14 @@ const ProjectDetail: React.FC = () => {
           dataSource={urls}
           rowKey="id"
           loading={urlsLoading}
+          scroll={{ x: window.innerWidth < 768 ? 800 : undefined }}
           pagination={{
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+            size: window.innerWidth < 768 ? 'small' : 'default',
           }}
+          size={window.innerWidth < 768 ? 'small' : 'middle'}
         />
       </Card>
 
@@ -315,7 +337,12 @@ const ProjectDetail: React.FC = () => {
           form.resetFields();
         }}
         footer={null}
-        width={800}
+        width={window.innerWidth < 768 ? '95%' : 800}
+        style={{ maxWidth: '95vw' }}
+        bodyStyle={{
+          maxHeight: window.innerWidth < 768 ? '70vh' : 'none',
+          overflowY: window.innerWidth < 768 ? 'auto' : 'visible'
+        }}
       >
         <Form
           form={form}

@@ -58,8 +58,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
-      <Header style={{ padding: '0 24px', background: '#fff', boxShadow: '0 1px 4px rgba(0,21,41,.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', height: '100%', justifyContent: 'space-between' }}>
+      <Header style={{
+        padding: window.innerWidth < 768 ? '0 16px' : '0 24px',
+        background: '#fff',
+        boxShadow: '0 1px 4px rgba(0,21,41,.08)'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          height: '100%',
+          justifyContent: 'space-between'
+        }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <Button
               type="text"
@@ -69,17 +78,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 fontSize: '16px',
                 width: 32,
                 height: 32,
-                marginRight: '12px'
+                marginRight: window.innerWidth < 768 ? '8px' : '12px'
               }}
             />
-            <LinkOutlined style={{ fontSize: '24px', marginRight: '12px', color: '#1890ff' }} />
-            <Title level={3} style={{ margin: 0, color: '#1890ff' }}>
-              URL管理系统
+            <LinkOutlined style={{
+              fontSize: window.innerWidth < 768 ? '20px' : '24px',
+              marginRight: window.innerWidth < 768 ? '8px' : '12px',
+              color: '#1890ff'
+            }} />
+            <Title level={window.innerWidth < 768 ? 4 : 3} style={{ margin: 0, color: '#1890ff' }}>
+              {window.innerWidth < 768 ? 'URL管理' : 'URL管理系统'}
             </Title>
           </div>
         </div>
       </Header>
-      
+
       <AntLayout>
         <Sider
           width={256}
@@ -96,13 +109,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             items={menuItems}
           />
         </Sider>
-        
-        <AntLayout style={{ padding: '24px' }}>
-          <Breadcrumb style={{ marginBottom: '24px' }} items={getBreadcrumbItems()} />
-          
+
+        <AntLayout style={{
+          padding: window.innerWidth < 768 ? '16px' : '24px'
+        }}>
+          <Breadcrumb
+            style={{
+              marginBottom: window.innerWidth < 768 ? '16px' : '24px',
+              fontSize: window.innerWidth < 768 ? '14px' : '16px'
+            }}
+            items={getBreadcrumbItems()}
+          />
+
           <Content
             style={{
-              padding: '24px',
+              padding: window.innerWidth < 768 ? '16px' : '24px',
               margin: 0,
               minHeight: 280,
               background: '#fff',
