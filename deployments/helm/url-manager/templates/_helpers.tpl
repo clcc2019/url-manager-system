@@ -174,5 +174,5 @@ Database Name
 Backend Service URL for frontend
 */}}
 {{- define "url-manager.backendServiceUrl" -}}
-{{- printf "http://%s-backend:%d" (include "url-manager.fullname" .) (int .Values.backend.service.port) }}
+{{- printf "http://%s-backend:%s" (include "url-manager.fullname" .) (.Values.backend.service.port | toString) }}
 {{- end }}
