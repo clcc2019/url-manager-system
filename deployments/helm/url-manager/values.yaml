@@ -116,7 +116,7 @@ redis:
   enabled: true
   auth:
     enabled: false
-  architecture: replication
+  architecture: standalone
   replica:
     replicaCount: 1
 
