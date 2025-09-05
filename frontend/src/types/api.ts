@@ -11,6 +11,22 @@ export interface EnvironmentVar {
   value: string;
 }
 
+export interface DeviceMapping {
+  host_path: string;
+  container_path: string;
+  permissions?: string;
+}
+
+export interface ContainerConfig {
+  container_name?: string;
+  devices?: DeviceMapping[];
+  command?: string[];
+  args?: string[];
+  working_dir?: string;
+  tty?: boolean;
+  stdin?: boolean;
+}
+
 export interface ResourceRequests {
   cpu: string;
   memory: string;
@@ -29,6 +45,7 @@ export interface EphemeralURL {
   env: EnvironmentVar[];
   replicas: number;
   resources: ResourceLimits;
+  container_config?: ContainerConfig;
   status: 'draft' | 'creating' | 'active' | 'deleting' | 'deleted' | 'failed';
   k8s_deployment_name?: string;
   k8s_service_name?: string;
@@ -51,6 +68,7 @@ export interface CreateURLRequest {
   ttl_seconds: number;
   replicas?: number;
   resources?: ResourceLimits;
+  container_config?: ContainerConfig;
 }
 
 export interface CreateURLResponse {

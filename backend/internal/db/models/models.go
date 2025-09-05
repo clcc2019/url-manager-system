@@ -26,6 +26,7 @@ type EphemeralURL struct {
 	Env               EnvironmentVars `json:"env" db:"env"`
 	Replicas          int             `json:"replicas" db:"replicas" binding:"min=1,max=10"`
 	Resources         ResourceLimits  `json:"resources" db:"resources"`
+	ContainerConfig   ContainerConfig `json:"container_config" db:"container_config"`
 	Status            string          `json:"status" db:"status"`
 	K8sDeploymentName *string         `json:"k8s_deployment_name" db:"k8s_deployment_name"`
 	K8sServiceName    *string         `json:"k8s_service_name" db:"k8s_service_name"`
@@ -83,6 +84,69 @@ type ResourceLimits struct {
 	Limits   ResourceRequests `json:"limits"`
 }
 
+// DeviceMapping 设备映射
+type DeviceMapping struct {
+	HostPath      string `json:"host_path" binding:"required"`
+	ContainerPath string `json:"container_path" binding:"required"`
+	Permissions   string `json:"permissions"` // r, w, rw, m
+}
+
+// DeviceMappings 设备映射列表
+type DeviceMappings []DeviceMapping
+
+// Value 实现driver.Valuer接口
+func (d DeviceMappings) Value() (driver.Value, error) {
+	if d == nil {
+		return nil, nil
+	}
+	return json.Marshal(d)
+}
+
+// Scan 实现sql.Scanner接口
+func (d *DeviceMappings) Scan(value interface{}) error {
+	if value == nil {
+		*d = nil
+		return nil
+	}
+
+	bytes, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+
+	return json.Unmarshal(bytes, d)
+}
+
+// ContainerConfig 容器配置
+type ContainerConfig struct {
+	ContainerName string         `json:"container_name,omitempty"` // 容器名称
+	Devices       DeviceMappings `json:"devices,omitempty"`        // 设备映射
+	Command       []string       `json:"command,omitempty"`        // 启动命令
+	Args          []string       `json:"args,omitempty"`           // 启动参数
+	WorkingDir    string         `json:"working_dir,omitempty"`    // 工作目录
+	TTY           bool           `json:"tty"`                      // 是否分配TTY
+	Stdin         bool           `json:"stdin"`                    // 是否打开stdin
+}
+
+// Value 实现driver.Valuer接口
+func (c ContainerConfig) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
+// Scan 实现sql.Scanner接口
+func (c *ContainerConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	bytes, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+
+	return json.Unmarshal(bytes, c)
+}
+
 // Value 实现driver.Valuer接口
 func (r ResourceLimits) Value() (driver.Value, error) {
 	return json.Marshal(r)
@@ -113,11 +177,12 @@ const (
 
 // CreateEphemeralURLRequest 创建URL请求
 type CreateEphemeralURLRequest struct {
-	Image      string          `json:"image" binding:"required"`
-	Env        EnvironmentVars `json:"env"`
-	TTLSeconds int             `json:"ttl_seconds" binding:"required,min=60,max=604800"` // 1分钟到7天
-	Replicas   int             `json:"replicas" binding:"min=1,max=10"`
-	Resources  ResourceLimits  `json:"resources"`
+	Image           string          `json:"image" binding:"required"`
+	Env             EnvironmentVars `json:"env"`
+	TTLSeconds      int             `json:"ttl_seconds" binding:"required,min=60,max=604800"` // 1分钟到7天
+	Replicas        int             `json:"replicas" binding:"min=1,max=10"`
+	Resources       ResourceLimits  `json:"resources"`
+	ContainerConfig ContainerConfig `json:"container_config"`
 }
 
 // CreateEphemeralURLResponse 创建URL响应

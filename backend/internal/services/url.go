@@ -47,6 +47,18 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
+	// 验证容器配置
+	if err := utils.ValidateContainerConfig(req.ContainerConfig); err != nil {
+		return nil, fmt.Errorf("container config validation failed: %w", err)
+	}
+
+	// 验证设备映射安全性
+	for _, device := range req.ContainerConfig.Devices {
+		if err := utils.ValidateDeviceMapping(device); err != nil {
+			return nil, fmt.Errorf("device mapping validation failed: %w", err)
+		}
+	}
+
 	// 获取项目信息
 	project, err := s.getProject(ctx, projectID)
 	if err != nil {
@@ -61,17 +73,18 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 
 	// 创建URL记录
 	url := &models.EphemeralURL{
-		ID:        uuid.New(),
-		ProjectID: projectID,
-		Path:      path,
-		Image:     req.Image,
-		Env:       req.Env,
-		Replicas:  req.Replicas,
-		Resources: req.Resources,
-		Status:    models.StatusCreating,
-		ExpireAt:  time.Now().Add(time.Duration(req.TTLSeconds) * time.Second),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:              uuid.New(),
+		ProjectID:       projectID,
+		Path:            path,
+		Image:           req.Image,
+		Env:             req.Env,
+		Replicas:        req.Replicas,
+		Resources:       req.Resources,
+		ContainerConfig: req.ContainerConfig,
+		Status:          models.StatusCreating,
+		ExpireAt:        time.Now().Add(time.Duration(req.TTLSeconds) * time.Second),
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 
 	// 设置默认值

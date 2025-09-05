@@ -96,6 +96,14 @@ const ProjectDetail: React.FC = () => {
             memory: values.limits_memory || '512Mi',
           },
         },
+        container_config: values.container_config ? {
+          ...values.container_config,
+          devices: values.container_config.devices?.filter((device: any) =>
+            device.host_path && device.container_path
+          ) || undefined,
+          command: values.container_config.command?.filter((cmd: string) => cmd.trim()) || undefined,
+          args: values.container_config.args?.filter((arg: string) => arg.trim()) || undefined,
+        } : undefined,
       };
 
       const response = await ApiService.createURL(id, request);
@@ -437,6 +445,115 @@ const ProjectDetail: React.FC = () => {
               </>
             )}
           </Form.List>
+
+          <Divider orientation="left">容器配置</Divider>
+
+          <Form.Item
+            label="容器名称"
+            name={['container_config', 'container_name']}
+            rules={[
+              {
+                pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+                message: '容器名称只能包含小写字母、数字和连字符，且必须以字母数字开头和结尾'
+              }
+            ]}
+          >
+            <Input placeholder="可选，自定义容器名称" />
+          </Form.Item>
+
+          <Form.Item
+            label="工作目录"
+            name={['container_config', 'working_dir']}
+            rules={[
+              {
+                pattern: /^\/.*/,
+                message: '工作目录必须是绝对路径'
+              }
+            ]}
+          >
+            <Input placeholder="例如: /app" />
+          </Form.Item>
+
+          <Form.Item label="TTY">
+            <Form.Item name={['container_config', 'tty']} noStyle valuePropName="checked">
+              <input type="checkbox" />
+            </Form.Item>
+            <span style={{ marginLeft: 8 }}>分配TTY</span>
+          </Form.Item>
+
+          <Form.Item label="Stdin">
+            <Form.Item name={['container_config', 'stdin']} noStyle valuePropName="checked">
+              <input type="checkbox" />
+            </Form.Item>
+            <span style={{ marginLeft: 8 }}>打开Stdin</span>
+          </Form.Item>
+
+          <Divider orientation="left">设备映射</Divider>
+
+          <Form.List name={['container_config', 'devices']}>
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(({ key, name, ...restField }) => (
+                  <Space key={key} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'host_path']}
+                      rules={[
+                        { required: true, message: '请输入主机路径' },
+                        { pattern: /^\/.*/, message: '主机路径必须是绝对路径' }
+                      ]}
+                      style={{ minWidth: 200 }}
+                    >
+                      <Input placeholder="主机路径 (例如: /dev/kvm)" />
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'container_path']}
+                      rules={[
+                        { required: true, message: '请输入容器路径' },
+                        { pattern: /^\/.*/, message: '容器路径必须是绝对路径' }
+                      ]}
+                      style={{ minWidth: 200 }}
+                    >
+                      <Input placeholder="容器路径 (例如: /dev/kvm)" />
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'permissions']}
+                      rules={[
+                        { pattern: /^[rwm]*$/, message: '权限只能包含 r、w、m 字符' }
+                      ]}
+                      style={{ minWidth: 100 }}
+                    >
+                      <Input placeholder="权限 (rwm)" />
+                    </Form.Item>
+                    <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
+                  </Space>
+                ))}
+                <Form.Item>
+                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                    添加设备映射
+                  </Button>
+                </Form.Item>
+              </>
+            )}
+          </Form.List>
+
+          <Divider orientation="left">启动配置</Divider>
+
+          <Form.Item
+            label="启动命令"
+            name={['container_config', 'command']}
+          >
+            <Select mode="tags" placeholder="可选，覆盖默认启动命令" />
+          </Form.Item>
+
+          <Form.Item
+            label="启动参数"
+            name={['container_config', 'args']}
+          >
+            <Select mode="tags" placeholder="可选，传递给启动命令的参数" />
+          </Form.Item>
 
           <Form.Item>
             <Space>

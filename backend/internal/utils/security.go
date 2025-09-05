@@ -2,8 +2,10 @@ package utils
 
 import (
 	"crypto/subtle"
+	"fmt"
 	"regexp"
 	"strings"
+	"url-manager-system/backend/internal/db/models"
 )
 
 // ValidateImageName 验证镜像名称格式
@@ -150,4 +152,80 @@ func SanitizeKubernetesLabel(value string) string {
 	}
 
 	return value
+}
+
+// ValidateContainerConfig 验证容器配置
+func ValidateContainerConfig(config models.ContainerConfig) error {
+	// 验证容器名称
+	if config.ContainerName != "" {
+		if len(config.ContainerName) > 63 {
+			return fmt.Errorf("容器名称不能超过63个字符")
+		}
+		// Kubernetes名称格式验证
+		nameRegex := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+		if !nameRegex.MatchString(config.ContainerName) {
+			return fmt.Errorf("容器名称格式无效，只能包含小写字母、数字和连字符，且必须以字母数字开头和结尾")
+		}
+	}
+
+	// 验证设备映射
+	for i, device := range config.Devices {
+		if device.HostPath == "" {
+			return fmt.Errorf("设备映射 %d: 主机路径不能为空", i+1)
+		}
+		if device.ContainerPath == "" {
+			return fmt.Errorf("设备映射 %d: 容器路径不能为空", i+1)
+		}
+		// 验证权限格式
+		if device.Permissions != "" {
+			permRegex := regexp.MustCompile(`^[rwm]+$`)
+			if !permRegex.MatchString(device.Permissions) {
+				return fmt.Errorf("设备映射 %d: 权限格式无效，只能包含 r、w、m 字符", i+1)
+			}
+		}
+		// 验证设备映射安全性
+		if err := ValidateDeviceMapping(device); err != nil {
+			return fmt.Errorf("设备映射 %d: %w", i+1, err)
+		}
+	}
+
+	// 验证工作目录
+	if config.WorkingDir != "" && !strings.HasPrefix(config.WorkingDir, "/") {
+		return fmt.Errorf("工作目录必须是绝对路径")
+	}
+
+	return nil
+}
+
+// ValidateDeviceMapping 验证设备映射安全性
+func ValidateDeviceMapping(device models.DeviceMapping) error {
+	// 安全检查：不允许映射敏感设备
+	sensitiveDevices := []string{
+		"/dev/mem",
+		"/dev/kmem",
+		"/dev/port",
+		"/dev/sda",
+		"/dev/sdb",
+		"/dev/hda",
+		"/dev/hdb",
+		"/dev/root",
+		"/proc",
+		"/sys",
+	}
+
+	for _, sensitive := range sensitiveDevices {
+		if strings.HasPrefix(device.HostPath, sensitive) {
+			return fmt.Errorf("不允许映射敏感设备或路径: %s", sensitive)
+		}
+	}
+
+	// 检查路径是否为绝对路径
+	if !strings.HasPrefix(device.HostPath, "/") {
+		return fmt.Errorf("主机路径必须是绝对路径")
+	}
+	if !strings.HasPrefix(device.ContainerPath, "/") {
+		return fmt.Errorf("容器路径必须是绝对路径")
+	}
+
+	return nil
 }

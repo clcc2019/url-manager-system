@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"strings"
 	"url-manager-system/backend/internal/db/models"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -67,35 +68,7 @@ func (rm *ResourceManager) CreateDeployment(ctx context.Context, url *models.Eph
 						FSGroup:      int64Ptr(2000),
 					},
 					Containers: []corev1.Container{
-						{
-							Name:            "app",
-							Image:           url.Image,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 80,
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
-							Env: rm.buildEnvVars(url),
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resourceQuantity(url.Resources.Requests.CPU),
-									corev1.ResourceMemory: resourceQuantity(url.Resources.Requests.Memory),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resourceQuantity(url.Resources.Limits.CPU),
-									corev1.ResourceMemory: resourceQuantity(url.Resources.Limits.Memory),
-								},
-							},
-							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: boolPtr(false),
-								RunAsNonRoot:             boolPtr(true),
-								RunAsUser:                int64Ptr(1000),
-								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
-								},
-							},
+						rm.buildContainerSpec(url),
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -281,4 +254,119 @@ func resourceQuantity(value string) resource.Quantity {
 		return resource.MustParse("0")
 	}
 	return resource.MustParse(value)
+}
+
+// getContainerName 获取容器名称
+func (rm *ResourceManager) getContainerName(url *models.EphemeralURL) string {
+	if url.ContainerConfig.ContainerName != "" {
+		return url.ContainerConfig.ContainerName
+	}
+	return "app"
+}
+
+// buildContainerSpec 构建容器规格
+func (rm *ResourceManager) buildContainerSpec(url *models.EphemeralURL) corev1.Container {
+	container := corev1.Container{
+		Name:            rm.getContainerName(url),
+		Image:           url.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Ports: []corev1.ContainerPort{
+			{
+				ContainerPort: 80,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		Env: rm.buildEnvVars(url),
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resourceQuantity(url.Resources.Requests.CPU),
+				corev1.ResourceMemory: resourceQuantity(url.Resources.Requests.Memory),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resourceQuantity(url.Resources.Limits.CPU),
+				corev1.ResourceMemory: resourceQuantity(url.Resources.Limits.Memory),
+			},
+		},
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: boolPtr(false),
+			RunAsNonRoot:             boolPtr(true),
+			RunAsUser:                int64Ptr(1000),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/",
+					Port: intstr.FromInt(80),
+				},
+			},
+			InitialDelaySeconds: 30,
+			PeriodSeconds:       10,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/",
+					Port: intstr.FromInt(80),
+				},
+			},
+			InitialDelaySeconds: 5,
+			PeriodSeconds:       5,
+		},
+	}
+
+	// 设置命令和参数
+	if len(url.ContainerConfig.Command) > 0 {
+		container.Command = url.ContainerConfig.Command
+	}
+	if len(url.ContainerConfig.Args) > 0 {
+		container.Args = url.ContainerConfig.Args
+	}
+
+	// 设置工作目录
+	if url.ContainerConfig.WorkingDir != "" {
+		container.WorkingDir = url.ContainerConfig.WorkingDir
+	}
+
+	// 设置TTY和Stdin
+	if url.ContainerConfig.TTY {
+		container.TTY = true
+	}
+	if url.ContainerConfig.Stdin {
+		container.Stdin = true
+	}
+
+	// 设置设备映射
+	if len(url.ContainerConfig.Devices) > 0 {
+		container.VolumeDevices = rm.buildVolumeDevices(url.ContainerConfig.Devices)
+	}
+
+	return container
+}
+
+// buildVolumeDevices 构建设备映射
+func (rm *ResourceManager) buildVolumeDevices(devices models.DeviceMappings) []corev1.VolumeDevice {
+	var volumeDevices []corev1.VolumeDevice
+
+	for _, device := range devices {
+		volumeDevices = append(volumeDevices, corev1.VolumeDevice{
+			Name:       rm.sanitizeDeviceName(device.HostPath),
+			DevicePath: device.ContainerPath,
+		})
+	}
+
+	return volumeDevices
+}
+
+// sanitizeDeviceName 清理设备名称用于Kubernetes资源名
+func (rm *ResourceManager) sanitizeDeviceName(hostPath string) string {
+	// 将路径转换为有效的Kubernetes名称
+	name := strings.ReplaceAll(hostPath, "/", "-")
+	name = strings.Trim(name, "-")
+	if name == "" {
+		name = "device"
+	}
+	return name
 }
