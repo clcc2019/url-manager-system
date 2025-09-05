@@ -41,15 +41,29 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const getBreadcrumbItems = () => {
     const pathSegments = location.pathname.split('/').filter(Boolean);
-    const items = [{ title: '首页' }];
+    const items = [
+      {
+        title: '首页',
+        onClick: () => navigate('/projects')
+      }
+    ];
 
     if (pathSegments[0] === 'projects') {
-      items.push({ title: '项目管理' });
-      
+      items.push({
+        title: '项目管理',
+        onClick: () => navigate('/projects')
+      });
+
       if (pathSegments[1] === 'new') {
-        items.push({ title: '创建项目' });
+        items.push({
+          title: '创建项目',
+          onClick: () => navigate('/projects/new')
+        });
       } else if (pathSegments[1]) {
-        items.push({ title: '项目详情' });
+        items.push({
+          title: '项目详情',
+          onClick: () => navigate(`/projects/${pathSegments[1]}`)
+        });
       }
     }
 
@@ -78,7 +92,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 fontSize: '16px',
                 width: 32,
                 height: 32,
-                marginRight: window.innerWidth < 768 ? '8px' : '12px'
+                marginRight: window.innerWidth < 768 ? '8px' : '12px',
+                zIndex: 1000,
+                position: 'relative'
               }}
             />
             <LinkOutlined style={{
