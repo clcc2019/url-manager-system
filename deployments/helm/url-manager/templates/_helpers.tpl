@@ -177,11 +177,11 @@ Backend Service URL for frontend
 {{- if .Values.ingress.enabled }}
   {{- $host := index .Values.ingress.hosts 0 }}
   {{- if $host.host }}
-    {{- printf "https://%s/api" $host.host }}
+    {{- printf "https://%s/api/v1" $host.host }}
   {{- else }}
-    {{- printf "http://%s-backend:%s" (include "url-manager.fullname" .) (.Values.backend.service.port | toString) }}
+    {{- printf "http://%s-backend:%s/api/v1" (include "url-manager.fullname" .) (.Values.backend.service.port | toString) }}
   {{- end }}
 {{- else }}
-  {{- printf "http://%s-backend:%s" (include "url-manager.fullname" .) (.Values.backend.service.port | toString) }}
+  {{- printf "http://%s-backend:%s/api/v1" (include "url-manager.fullname" .) (.Values.backend.service.port | toString) }}
 {{- end }}
 {{- end }}

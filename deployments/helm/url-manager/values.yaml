@@ -10,7 +10,7 @@ backend:
 
   image:
     repository: ghcr.io/clcc2019/url-manager-system/backend
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
     tag: "latest"
   
   imagePullSecrets: []
@@ -62,7 +62,7 @@ frontend:
   
   image:
     repository: ghcr.io/clcc2019/url-manager-system/frontend
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
     tag: "latest"
   
   service:
@@ -84,15 +84,18 @@ ingress:
   className: "traefik"
   annotations: {}
   hosts:
-    - host: url-manager.example.com
+    - host: url.dslife.asia
       paths:
         - path: /
           pathType: Prefix
           service: frontend
-        - path: /api
+        - path: /api/v1
           pathType: Prefix
           service: backend
-  tls: []
+  tls:
+    - hosts:
+        - url.dslife.asia
+      secretName: url-manager-tls
 
 # PostgreSQL configuration (using Bitnami chart)
 postgresql:

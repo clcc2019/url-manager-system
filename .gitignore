@@ -9,6 +9,7 @@ build/
 *.dll
 *.so
 *.dylib
+helm/
 
 # 忽略测试覆盖率文件
 *.out
@@ -65,3 +66,4 @@ kubeconfig
 *.pem
 *.key
 *.crt
+deployments/helm/url-manager/values.yaml
