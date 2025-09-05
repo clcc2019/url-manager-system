@@ -29,8 +29,8 @@ services:
 
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: backend/Dockerfile
     ports:
       - "8080:8080"
     environment:
@@ -49,13 +49,13 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ../backend:/app
+      - ../../backend:/app
     restart: unless-stopped
 
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: frontend/Dockerfile
     ports:
       - "3000:80"
     environment:

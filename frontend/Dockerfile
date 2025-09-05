@@ -5,11 +5,11 @@ FROM node:18-alpine AS builder
 WORKDIR /build
 
 # 复制package文件并安装依赖
-COPY package*.json ./
+COPY frontend/package*.json ./
 RUN npm ci && npm cache clean --force
 
 # 复制源代码
-COPY . .
+COPY frontend/ .
 
 # 构建应用
 RUN npm run build
@@ -26,7 +26,7 @@ RUN apk --no-cache upgrade
 COPY --from=builder /build/dist /usr/share/nginx/html
 
 # 复制nginx配置
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY frontend/nginx.conf /etc/nginx/nginx.conf
 
 # 设置正确的权限
 RUN chown -R nginx:nginx /usr/share/nginx/html && \

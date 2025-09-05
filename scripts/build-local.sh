@@ -21,8 +21,7 @@ fi
 
 # 构建后端镜像
 echo -e "${YELLOW}📦 构建后端镜像...${NC}"
-cd backend
-docker build -t url-manager-backend:local .
+docker build -f backend/Dockerfile -t url-manager-backend:local .
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ 后端镜像构建成功${NC}"
 else
@@ -32,16 +31,13 @@ fi
 
 # 构建前端镜像
 echo -e "${YELLOW}🎨 构建前端镜像...${NC}"
-cd ../frontend
-docker build -t url-manager-frontend:local .
+docker build -f frontend/Dockerfile -t url-manager-frontend:local .
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ 前端镜像构建成功${NC}"
 else
     echo -e "${RED}❌ 前端镜像构建失败${NC}"
     exit 1
 fi
-
-cd ..
 
 echo -e "${GREEN}🎉 所有镜像构建完成!${NC}"
 echo -e "${GREEN}后端镜像: url-manager-backend:local${NC}"
