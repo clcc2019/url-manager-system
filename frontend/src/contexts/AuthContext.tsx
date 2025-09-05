@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { message } from 'antd';
+import { toast } from '@/hooks/use-toast';
 import { ApiService, TokenManager } from '../services/api';
 import type { User, AuthContextType } from '../types/api';
 
@@ -18,42 +18,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // 初始化：检查本地存储的token和用户信息
   useEffect(() => {
     const initAuth = async () => {
-      console.log('AuthContext: 初始化认证状态...');
       const savedToken = TokenManager.getToken();
       const savedUser = TokenManager.getUser();
-      console.log('AuthContext: 本地存储', { hasToken: !!savedToken, hasUser: !!savedUser, userRole: savedUser?.role });
 
       if (savedToken && savedUser) {
+        // 立即设置本地状态，不等待API验证
         setToken(savedToken);
         setUser(savedUser);
-        console.log('AuthContext: 设置初始状态', { userRole: savedUser.role });
         
-        // 验证token是否仍然有效
+        // 异步验证token是否仍然有效，但不阻塞UI渲染
         try {
           const currentUser = await ApiService.getProfile();
-          console.log('AuthContext: 验证成功', { userRole: currentUser.role });
           // 更新用户信息（可能有变更）
           setUser(currentUser);
           TokenManager.setUser(currentUser);
         } catch (error) {
-          console.warn('AuthContext: Token validation failed:', error);
+          console.warn('Token validation failed:', error);
           // 只有在明确是认证错误时才清除状态
           const isAuthError = (error as any)?.response?.status === 401;
           if (isAuthError) {
-            console.log('AuthContext: 401错误，清除认证状态');
             TokenManager.clear();
             setToken(null);
             setUser(null);
-          } else {
-            console.log('AuthContext: 非认证错误，保持本地状态');
           }
           // 其他网络错误不清除状态，保持本地状态
         }
-      } else {
-        console.log('AuthContext: 没有本地认证信息');
       }
       
-      console.log('AuthContext: 初始化完成');
       setIsLoading(false);
     };
 
@@ -64,7 +55,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const handleUnauthorized = () => {
       logout();
-      message.error('登录已过期，请重新登录');
+      toast({
+        title: '登录已过期',
+        description: '请重新登录',
+        variant: 'destructive',
+      });
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
@@ -84,10 +79,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       TokenManager.setToken(response.token);
       TokenManager.setUser(response.user);
       
-      message.success('登录成功');
+      toast({
+        title: '登录成功',
+        description: '欢迎回来！',
+      });
     } catch (error: any) {
       const errorMessage = error.response?.data?.error || '登录失败';
-      message.error(errorMessage);
+      toast({
+        title: '登录失败',
+        description: errorMessage,
+        variant: 'destructive',
+      });
       throw error;
     } finally {
       setIsLoading(false);
@@ -107,7 +109,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setToken(null);
       setUser(null);
       TokenManager.clear();
-      message.success('已登出');
+      toast({
+        title: '退出成功',
+        description: '您已安全退出系统',
+      });
     }
   };
 

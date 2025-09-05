@@ -119,7 +119,7 @@ func setDefaults() {
 	viper.SetDefault("k8s.in_cluster", false)
 	viper.SetDefault("k8s.config_path", "")
 	viper.SetDefault("k8s.default_domain", "example.com")
-	viper.SetDefault("k8s.ingress_class", "nginx")
+	viper.SetDefault("k8s.ingress_class", "traefik")
 
 	// Security配置
 	viper.SetDefault("security.jwt_secret", "")

@@ -65,6 +65,8 @@ type EphemeralURL struct {
 	K8sServiceName    *string         `json:"k8s_service_name" db:"k8s_service_name"`
 	K8sSecretName     *string         `json:"k8s_secret_name" db:"k8s_secret_name"`
 	ErrorMessage      *string         `json:"error_message" db:"error_message"`
+	Logs              []LogEntry      `json:"logs" db:"logs"`
+	IngressHost       *string         `json:"ingress_host" db:"ingress_host"`
 	StartedAt         *time.Time      `json:"started_at" db:"started_at"`
 	ExpireAt          time.Time       `json:"expire_at" db:"expire_at"`
 	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
@@ -80,6 +82,14 @@ type EphemeralURL struct {
 type EnvironmentVar struct {
 	Name  string `json:"name" binding:"required"`
 	Value string `json:"value" binding:"required"`
+}
+
+// LogEntry 日志条目
+type LogEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"` // info, warn, error
+	Message   string    `json:"message"`
+	Details   string    `json:"details,omitempty"`
 }
 
 // EnvironmentVars 环境变量列表
@@ -220,6 +230,7 @@ type CreateEphemeralURLRequest struct {
 	Replicas        int             `json:"replicas" binding:"min=1,max=10"`
 	Resources       ResourceLimits  `json:"resources"`
 	ContainerConfig ContainerConfig `json:"container_config"`
+	IngressHost     *string         `json:"ingress_host,omitempty"` // 可选，自定义ingress host
 }
 
 // CreateEphemeralURLFromTemplateRequest 基于模版创建URL请求
@@ -227,6 +238,17 @@ type CreateEphemeralURLFromTemplateRequest struct {
 	TemplateID uuid.UUID `json:"template_id" binding:"required"`
 	TTLSeconds int       `json:"ttl_seconds" binding:"required,min=60,max=604800"` // 1分钟到7天
 	Path       string    `json:"path,omitempty"`                                   // 可选，为空时系统生成
+}
+
+// UpdateEphemeralURLRequest 更新URL请求
+type UpdateEphemeralURLRequest struct {
+	Image           string          `json:"image,omitempty"`
+	Env             EnvironmentVars `json:"env,omitempty"`
+	TTLSeconds      int             `json:"ttl_seconds,omitempty"`
+	Replicas        int             `json:"replicas,omitempty"`
+	Resources       ResourceLimits  `json:"resources,omitempty"`
+	ContainerConfig ContainerConfig `json:"container_config,omitempty"`
+	IngressHost     *string         `json:"ingress_host,omitempty"`
 }
 
 // CreateAppTemplateRequest 创建应用模版请求

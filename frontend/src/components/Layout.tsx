@@ -1,11 +1,35 @@
-import React, { useState, useEffect } from 'react';
-import { Layout as AntLayout, Menu, Typography, Breadcrumb, Button } from 'antd';
-import { ProjectOutlined, LinkOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FileTextOutlined } from '@ant-design/icons';
+import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarTrigger,
+  SidebarInset,
+} from '@/components/ui/sidebar';
+import { SidebarProvider } from '@/components/ui/sidebar-provider';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Separator } from '@/components/ui/separator';
+import {
+  Menu,
+  FileText,
+  Home,
+  FolderOpen,
+  Building2,
+} from 'lucide-react';
 import UserMenu from './UserMenu';
-
-const { Header, Content, Sider } = AntLayout;
-const { Title } = Typography;
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -14,68 +38,65 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
 
-  // 响应式：窗口宽度小于1024px时自动折叠
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth < 1024 && !collapsed) {
-        setCollapsed(true);
-      }
-    };
-
-    // 初始化检查
-    handleResize();
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [collapsed]);
-
-  const menuItems = [
+  const navigationGroups = [
     {
-      key: '/projects',
-      icon: <ProjectOutlined />,
-      label: '项目管理',
-      onClick: () => navigate('/projects'),
-    },
-    {
-      key: '/templates',
-      icon: <FileTextOutlined />,
-      label: '模版管理',
-      onClick: () => navigate('/templates'),
+      label: '主要功能',
+      items: [
+        {
+          title: '项目管理',
+          url: '/projects',
+          icon: FolderOpen,
+          isActive: location.pathname.startsWith('/projects'),
+        },
+        {
+          title: '模版管理', 
+          url: '/templates',
+          icon: FileText,
+          isActive: location.pathname.startsWith('/templates'),
+        },
+      ],
     },
   ];
 
   const getBreadcrumbItems = () => {
     const pathSegments = location.pathname.split('/').filter(Boolean);
-    const items = [
-      {
+    const items = [];
+
+    // 只有当不在projects页面时才显示首页链接
+    if (pathSegments[0] !== 'projects') {
+      items.push({
         title: '首页',
-        onClick: () => navigate('/projects')
-      }
-    ];
+        href: '/projects',
+        icon: Home
+      });
+    }
 
     if (pathSegments[0] === 'projects') {
       items.push({
         title: '项目管理',
-        onClick: () => navigate('/projects')
+        href: '/projects',
+        icon: FolderOpen
       });
 
       if (pathSegments[1] === 'new') {
         items.push({
           title: '创建项目',
-          onClick: () => navigate('/projects/new')
+          href: `/projects/new`,
+          icon: FolderOpen
         });
       } else if (pathSegments[1]) {
         items.push({
           title: '项目详情',
-          onClick: () => navigate(`/projects/${pathSegments[1]}`)
+          href: `/projects/${pathSegments[1]}`,
+          icon: FolderOpen
         });
       }
     } else if (pathSegments[0] === 'templates') {
       items.push({
         title: '模版管理',
-        onClick: () => navigate('/templates')
+        href: '/templates',
+        icon: FileText
       });
     }
 
@@ -83,95 +104,106 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <AntLayout style={{ minHeight: '100vh' }}>
-      <Header style={{
-        padding: window.innerWidth < 768 ? '0 16px' : '0 24px',
-        background: '#fff',
-        boxShadow: '0 1px 4px rgba(0,21,41,.08)'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          height: '100%',
-          justifyContent: 'space-between'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Button
-              type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
-              style={{
-                fontSize: '16px',
-                width: 32,
-                height: 32,
-                marginRight: window.innerWidth < 768 ? '8px' : '12px',
-                zIndex: 1000,
-                position: 'relative'
-              }}
-            />
-            <LinkOutlined style={{
-              fontSize: window.innerWidth < 768 ? '20px' : '24px',
-              marginRight: window.innerWidth < 768 ? '8px' : '12px',
-              color: '#1890ff'
-            }} />
-            <Title level={window.innerWidth < 768 ? 4 : 3} style={{ margin: 0, color: '#1890ff' }}>
-              {window.innerWidth < 768 ? 'URL管理' : 'URL管理系统'}
-            </Title>
-          </div>
+    <SidebarProvider>
+      {/* Application Sidebar */}
+      <Sidebar variant="inset">
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>应用</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => navigate('/projects')}
+                    className="flex items-center gap-2"
+                  >
+                    <Building2 className="h-4 w-4" />
+                    <span>URL管理系统</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
           
-          {/* 用户菜单 */}
-          <div style={{ 
-            background: 'linear-gradient(90deg, #1890ff 0%, #722ed1 100%)',
-            borderRadius: '20px',
-            padding: '2px'
-          }}>
+          {navigationGroups.map((group) => (
+            <SidebarGroup key={group.label}>
+              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton
+                          isActive={item.isActive}
+                          onClick={() => navigate(item.url)}
+                          className="flex items-center gap-2"
+                        >
+                          <Icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
+        </SidebarContent>
+      </Sidebar>
+
+      {/* Main Content Area */}
+      <SidebarInset>
+        {/* Header */}
+        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+          <div className="flex items-center gap-2 px-4 flex-1 min-w-0">
+            <SidebarTrigger className="-ml-1">
+              <Menu className="h-4 w-4" />
+            </SidebarTrigger>
+            <Separator orientation="vertical" className="mr-2 h-4" />
+            <Breadcrumb className="flex-1 min-w-0">
+              <BreadcrumbList className="flex-wrap">
+                {getBreadcrumbItems().map((item, index) => {
+                  const Icon = item.icon;
+                  const isLast = index === getBreadcrumbItems().length - 1;
+                  return (
+                    <React.Fragment key={item.href}>
+                      <BreadcrumbItem className="hidden md:block">
+                        {isLast ? (
+                          <BreadcrumbPage className="flex items-center gap-1 truncate">
+                            {Icon && <Icon className="h-4 w-4 flex-shrink-0" />}
+                            <span className="truncate">{item.title}</span>
+                          </BreadcrumbPage>
+                        ) : (
+                          <BreadcrumbLink
+                            onClick={() => navigate(item.href)}
+                            className="flex items-center gap-1 cursor-pointer truncate"
+                          >
+                            {Icon && <Icon className="h-4 w-4 flex-shrink-0" />}
+                            <span className="truncate">{item.title}</span>
+                          </BreadcrumbLink>
+                        )}
+                      </BreadcrumbItem>
+                      {!isLast && <BreadcrumbSeparator className="hidden md:block" />}
+                    </React.Fragment>
+                  );
+                })}
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
+          <div className="px-3 flex-shrink-0">
             <UserMenu />
           </div>
-        </div>
-      </Header>
-
-      <AntLayout>
-        <Sider
-          width={256}
-          style={{ background: '#fff' }}
-          collapsed={collapsed}
-          collapsedWidth={0}
-          theme="light"
-          trigger={null}
-        >
-          <Menu
-            mode="inline"
-            selectedKeys={[location.pathname]}
-            style={{ height: '100%', borderRight: 0 }}
-            items={menuItems}
-          />
-        </Sider>
-
-        <AntLayout style={{
-          padding: window.innerWidth < 768 ? '16px' : '24px'
-        }}>
-          <Breadcrumb
-            style={{
-              marginBottom: window.innerWidth < 768 ? '16px' : '24px',
-              fontSize: window.innerWidth < 768 ? '14px' : '16px'
-            }}
-            items={getBreadcrumbItems()}
-          />
-
-          <Content
-            style={{
-              padding: window.innerWidth < 768 ? '16px' : '24px',
-              margin: 0,
-              minHeight: 280,
-              background: '#fff',
-              borderRadius: '6px',
-            }}
-          >
+        </header>
+        
+        {/* Page Content */}
+        <div className="flex-1 space-y-4 p-4 md:p-6 lg:p-8 overflow-auto">
+          <div className="mx-auto w-full max-w-none">
             {children}
-          </Content>
-        </AntLayout>
-      </AntLayout>
-    </AntLayout>
+          </div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 };
 

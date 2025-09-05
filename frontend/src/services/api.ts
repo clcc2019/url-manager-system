@@ -5,6 +5,7 @@ import type {
   CreateProjectRequest,
   CreateURLRequest,
   CreateURLResponse,
+  UpdateURLRequest,
   ListProjectsResponse,
   ListURLsResponse,
   PaginationParams,
@@ -169,6 +170,14 @@ export class ApiService {
 
   static async deleteURL(id: string): Promise<void> {
     await apiClient.delete(`/urls/${id}`);
+  }
+
+  static async updateURL(
+    id: string,
+    data: UpdateURLRequest
+  ): Promise<EphemeralURL> {
+    const response = await apiClient.put(`/urls/${id}`, data);
+    return response.data;
   }
 
   static async deployURL(id: string): Promise<void> {

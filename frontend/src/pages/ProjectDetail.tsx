@@ -1,40 +1,60 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Card, 
-  Descriptions, 
-  Button, 
-  Table, 
-  message, 
-  Modal, 
-  Form, 
-  Input, 
-  InputNumber, 
-  Select, 
-  Tag, 
-  Space,
-  Popconfirm,
-  Typography,
-  Divider
-} from 'antd';
-import { 
-  PlusOutlined, 
-  DeleteOutlined, 
-  ReloadOutlined,
-  LinkOutlined,
-  ClockCircleOutlined,
-  RocketOutlined,
-} from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Project, EphemeralURL, CreateURLRequest, CreateURLFromTemplateRequest, EnvironmentVar, AppTemplate } from '../types/api.js';
 import { ApiService } from '../services/api';
 import { formatDate, getTimeUntilExpiry } from '../utils/date';
-
-const { Title, Text, Paragraph } = Typography;
-const { Option } = Select;
+import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Popconfirm } from '@/components/ui/popconfirm';
+import { Spinner } from '@/components/ui/spinner';
+import { Separator } from '@/components/ui/separator';
+import { 
+  Plus, 
+  Trash2, 
+  RefreshCw,
+  Clock,
+  Rocket,
+  Loader2,
+  Link,
+  Server,
+  Copy,
+  Eye,
+  Settings,
+  Activity
+} from 'lucide-react';
 
 const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
   
   const [project, setProject] = useState<Project | null>(null);
   const [urls, setUrls] = useState<EphemeralURL[]>([]);
@@ -44,7 +64,10 @@ const ProjectDetail: React.FC = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createMode, setCreateMode] = useState<'manual' | 'template'>('manual');
   const [selectedTemplate, setSelectedTemplate] = useState<AppTemplate | null>(null);
-  const [form] = Form.useForm();
+  const [editingURL, setEditingURL] = useState<EphemeralURL | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [formData, setFormData] = useState<any>({});
+  const [formErrors, setFormErrors] = useState<any>({});
 
   const fetchProject = useCallback(async () => {
     if (!id) return;
@@ -53,13 +76,19 @@ const ProjectDetail: React.FC = () => {
     try {
       const projectData = await ApiService.getProject(id);
       setProject(projectData);
-    } catch {
-      message.error('获取项目信息失败');
+    } catch (error: any) {
+      console.error('Failed to fetch project:', error);
+      const errorMessage = error?.response?.data?.error || '获取项目信息失败';
+      toast({
+        title: '获取失败',
+        description: errorMessage,
+        variant: 'destructive',
+      });
       navigate('/projects');
     } finally {
       setLoading(false);
     }
-  }, [id, navigate]);
+  }, [id, navigate, toast]);
 
   const fetchURLs = useCallback(async () => {
     if (!id) return;
@@ -67,51 +96,55 @@ const ProjectDetail: React.FC = () => {
     setUrlsLoading(true);
     try {
       const response = await ApiService.getProjectURLs(id);
-      setUrls(response.urls);
+      setUrls(response.urls || []);
     } catch {
-      message.error('获取URL列表失败');
+      toast({
+        title: '获取失败',
+        description: '获取URL列表失败',
+        variant: 'destructive',
+      });
+      setUrls([]); // 出错时设置为空数组
     } finally {
       setUrlsLoading(false);
     }
-  }, [id]);
+  }, [id, toast]);
 
   const fetchTemplates = useCallback(async () => {
     try {
       const response = await ApiService.getTemplates();
       setTemplates(response.templates);
     } catch {
-      message.error('获取模版列表失败');
+      toast({
+        title: '获取失败',
+        description: '获取模版列表失败',
+        variant: 'destructive',
+      });
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchProject();
     fetchURLs();
     fetchTemplates();
-  }, [id, fetchProject, fetchURLs, fetchTemplates]);
+  }, [fetchProject, fetchURLs, fetchTemplates]);
 
   const handleCreateURL = async (values: any) => {
     if (!id) return;
 
     try {
       if (createMode === 'template' && selectedTemplate) {
-        // 使用模版创建
         const request: CreateURLFromTemplateRequest = {
           template_id: selectedTemplate.id,
           ttl_seconds: values.ttl_seconds,
-          variables: values.variables ? 
-            values.variables.reduce((acc: Record<string, string>, item: any) => {
-              if (item.key && item.value) {
-                acc[item.key] = item.value;
-              }
-              return acc;
-            }, {}) : {},
+          variables: values.variables || {},
         };
         
         const response = await ApiService.createURLFromTemplate(id, request);
-        message.success(`URL创建成功: ${response.url}`);
+        toast({
+          title: '创建成功',
+          description: `URL创建成功: ${response.url}`,
+        });
       } else {
-        // 传统方式创建
         const request: CreateURLRequest = {
           image: values.image,
           ttl_seconds: values.ttl_seconds,
@@ -127,189 +160,129 @@ const ProjectDetail: React.FC = () => {
               memory: values.limits_memory || '512Mi',
             },
           },
-          container_config: values.container_config ? {
-            ...values.container_config,
-            devices: values.container_config.devices?.filter((device: any) =>
-              device.host_path && device.container_path
-            ) || undefined,
-            command: values.container_config.command?.filter((cmd: string) => cmd.trim()) || undefined,
-            args: values.container_config.args?.filter((arg: string) => arg.trim()) || undefined,
-          } : undefined,
         };
 
         const response = await ApiService.createURL(id, request);
-        message.success(`URL创建成功: ${response.url}`);
+        toast({
+          title: '创建成功',
+          description: `URL创建成功: ${response.url}`,
+        });
       }
       
       setCreateModalVisible(false);
-      form.resetFields();
       setCreateMode('manual');
       setSelectedTemplate(null);
+      setFormData({});
+      setFormErrors({});
       fetchURLs();
     } catch (error) {
       const errorMsg = (error as any)?.response?.data?.error || 'URL创建失败';
-      message.error(errorMsg);
+      toast({
+        title: '创建失败',
+        description: errorMsg,
+        variant: 'destructive',
+      });
     }
   };
 
   const handleDeleteURL = async (urlId: string) => {
     try {
       await ApiService.deleteURL(urlId);
-      message.success('URL删除成功');
+      toast({
+        title: '删除成功',
+        description: 'URL已成功删除',
+      });
+      // 重新获取URL列表，因为URL已被真正删除
       fetchURLs();
     } catch (error) {
       const errorMsg = (error as any)?.response?.data?.error || 'URL删除失败';
-      message.error(errorMsg);
+      toast({
+        title: '删除失败',
+        description: errorMsg,
+        variant: 'destructive',
+      });
     }
   };
 
-  const handleTemplateSelect = (template: AppTemplate) => {
-    setSelectedTemplate(template);
-    // 清空之前的表单数据
-    form.resetFields();
+  const handleEditURL = (url: EphemeralURL) => {
+    setEditingURL(url);
+    setFormData({
+      image: url.image,
+      replicas: url.replicas,
+      ttl_seconds: url.ttl_seconds,
+      ingress_host: url.ingress_host || '',
+    });
+    setEditModalVisible(true);
   };
 
-  const handleCreateModeChange = (mode: 'manual' | 'template') => {
-    setCreateMode(mode);
-    setSelectedTemplate(null);
-    form.resetFields();
+  const handleUpdateURL = async () => {
+    if (!editingURL) return;
+
+    try {
+      const updateData: any = {};
+
+      // 只包含有变化的字段
+      if (formData.image !== editingURL.image) {
+        updateData.image = formData.image;
+      }
+      if (formData.replicas !== editingURL.replicas) {
+        updateData.replicas = formData.replicas;
+      }
+      if (formData.ttl_seconds !== editingURL.ttl_seconds) {
+        updateData.ttl_seconds = formData.ttl_seconds;
+      }
+      if (formData.ingress_host !== editingURL.ingress_host) {
+        updateData.ingress_host = formData.ingress_host || null;
+      }
+
+      await ApiService.updateURL(editingURL.id, updateData);
+
+      toast({
+        title: '更新成功',
+        description: 'URL已成功更新',
+      });
+
+      setEditModalVisible(false);
+      setEditingURL(null);
+      setFormData({});
+
+      // 刷新URL列表
+      fetchURLs();
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || 'URL更新失败';
+      toast({
+        title: '更新失败',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleDeployURL = async (urlId: string) => {
     try {
       await ApiService.deployURL(urlId);
-      message.success('URL部署成功');
+      toast({
+        title: '部署成功',
+        description: 'URL已成功部署',
+      });
       fetchURLs();
     } catch (error) {
       const errorMsg = (error as any)?.response?.data?.error || 'URL部署失败';
-      message.error(errorMsg);
+      toast({
+        title: '部署失败',
+        description: errorMsg,
+        variant: 'destructive',
+      });
     }
   };
 
-  const urlColumns = [
-    {
-      title: 'URL路径',
-      dataIndex: 'path',
-      key: 'path',
-      width: window.innerWidth < 768 ? 150 : undefined,
-      render: (path: string, record: EphemeralURL) => {
-        if (record.status === 'active') {
-          return (
-            <Button
-              type="link"
-              icon={<LinkOutlined />}
-              onClick={() => window.open(`https://example.com${path}`, '_blank')}
-              style={{ padding: 0, fontSize: window.innerWidth < 768 ? '12px' : undefined }}
-            >
-              {window.innerWidth < 768 ? path.substring(0, 20) + '...' : path}
-            </Button>
-          );
-        }
-        return <Text code style={{ fontSize: window.innerWidth < 768 ? '12px' : undefined }}>{path}</Text>;
-      },
-    },
-    ...(window.innerWidth < 768 ? [] : [{
-      title: '镜像/模版',
-      dataIndex: 'image',
-      key: 'image',
-      ellipsis: true,
-      render: (image: string, record: EphemeralURL) => {
-        if (record.template) {
-          return (
-            <div>
-              <Tag color="blue">模版: {record.template.name}</Tag>
-            </div>
-          );
-        }
-        return <Text ellipsis>{image}</Text>;
-      },
-    }]),
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: window.innerWidth < 768 ? 80 : undefined,
-      render: (status: string) => {
-        const statusConfig = {
-          draft: { color: 'default', text: '草稿' },
-          creating: { color: 'processing', text: '创建中' },
-          waiting: { color: 'warning', text: '等待中' },
-          active: { color: 'success', text: '运行中' },
-          deleting: { color: 'warning', text: '删除中' },
-          deleted: { color: 'default', text: '已删除' },
-          failed: { color: 'error', text: '失败' },
-        };
-        
-        const config = statusConfig[status as keyof typeof statusConfig] || { color: 'default', text: status };
-        return <Tag color={config.color}>{config.text}</Tag>;
-      },
-    },
-    ...(window.innerWidth < 768 ? [] : [{
-      title: '副本数',
-      dataIndex: 'replicas',
-      key: 'replicas',
-    }]),
-    {
-      title: window.innerWidth < 768 ? '过期' : '过期时间',
-      dataIndex: 'expire_at',
-      key: 'expire_at',
-      width: window.innerWidth < 768 ? 100 : undefined,
-      render: (expireAt: string) => (
-        <Space direction={window.innerWidth < 768 ? 'horizontal' : 'vertical'} size="small">
-          <Text style={{ fontSize: window.innerWidth < 768 ? '12px' : undefined }}>
-            {window.innerWidth < 768 ? expireAt.split('T')[0] : formatDate(expireAt)}
-          </Text>
-          {window.innerWidth >= 768 && (
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-              <ClockCircleOutlined /> {getTimeUntilExpiry(expireAt)}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
-    ...(window.innerWidth < 768 ? [] : [{
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (text: string) => formatDate(text),
-    }]),
-    {
-      title: '操作',
-      key: 'actions',
-      width: window.innerWidth < 768 ? 120 : 120,
-      render: (_: any, record: EphemeralURL) => (
-        <Space size={window.innerWidth < 768 ? 'small' : 'middle'}>
-          {(record.status === 'draft' || record.status === 'failed') && (
-            <Button
-              type="primary"
-              icon={<RocketOutlined />}
-              size={window.innerWidth < 768 ? 'small' : 'small'}
-              onClick={() => handleDeployURL(record.id)}
-            >
-              {window.innerWidth < 768 ? '' : (record.status === 'failed' ? '重新部署' : '部署')}
-            </Button>
-          )}
-          {record.status !== 'deleted' && (
-            <Popconfirm
-              title="确定要删除这个URL吗？"
-              description="删除后将无法访问"
-              onConfirm={() => handleDeleteURL(record.id)}
-              okText="确定"
-              cancelText="取消"
-            >
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                size={window.innerWidth < 768 ? 'small' : 'small'}
-              >
-                {window.innerWidth < 768 ? '' : '删除'}
-              </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
-    },
-  ];
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: '复制成功',
+      description: '链接已复制到剪贴板',
+    });
+  };
 
   const ttlOptions = [
     { label: '30分钟', value: 1800 },
@@ -320,414 +293,570 @@ const ProjectDetail: React.FC = () => {
     { label: '7天', value: 604800 },
   ];
 
+  // 计算统计数据
+  const stats = {
+    totalUrls: urls?.length || 0,
+    activeUrls: urls?.filter(url => url.status === 'active').length || 0,
+    failedUrls: urls?.filter(url => url.status === 'failed').length || 0,
+    pendingUrls: urls?.filter(url => ['creating', 'waiting'].includes(url.status)).length || 0,
+  };
+
   if (loading || !project) {
-    return <div>加载中...</div>;
+    return (
+      <div className="flex flex-col justify-center items-center min-h-96 space-y-4">
+        <Spinner size="lg" />
+        <div className="text-center">
+          <p className="text-lg font-medium">正在加载项目详情...</p>
+          <p className="text-sm text-muted-foreground">项目ID: {id}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div>
-      <Card
-        title={
-          <Title
-            level={window.innerWidth < 768 ? 3 : 2}
-            style={{
-              margin: 0,
-              fontSize: window.innerWidth < 768 ? '18px' : undefined
-            }}
-          >
-            {project.name}
-          </Title>
-        }
-        extra={
+    <div className="space-y-6">
+      {/* 页面头部 */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+          <p className="text-muted-foreground">
+            {project.description || '暂无描述'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
           <Button
-            icon={<ReloadOutlined />}
+            variant="outline"
             onClick={() => {
               fetchProject();
               fetchURLs();
             }}
-            size={window.innerWidth < 768 ? 'small' : 'middle'}
+            className="flex items-center gap-2"
           >
-            {window.innerWidth < 768 ? '' : '刷新'}
+            <RefreshCw className="h-4 w-4" />
+            刷新
           </Button>
-        }
-      >
-        <Descriptions column={window.innerWidth < 768 ? 1 : 2}>
-          <Descriptions.Item label="项目ID">{project.id}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{formatDate(project.created_at)}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{formatDate(project.updated_at)}</Descriptions.Item>
-          <Descriptions.Item label="描述" span={window.innerWidth < 768 ? 1 : 2}>
-            <Paragraph>{project.description || '无描述'}</Paragraph>
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-
-      <Divider />
-
-      <Card
-        title={<span style={{ fontSize: window.innerWidth < 768 ? '16px' : '18px' }}>URL 列表</span>}
-        extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-            setCreateModalVisible(true);
-            setCreateMode('manual');
-            setSelectedTemplate(null);
-            form.resetFields();
-          }}
-            size={window.innerWidth < 768 ? 'small' : 'middle'}
-          >
-            {window.innerWidth < 768 ? '' : '创建URL'}
-          </Button>
-        }
-      >
-        <Table
-          columns={urlColumns}
-          dataSource={urls}
-          rowKey="id"
-          loading={urlsLoading}
-          scroll={{ x: window.innerWidth < 768 ? 800 : undefined }}
-          pagination={{
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-            size: window.innerWidth < 768 ? 'small' : 'default',
-          }}
-          size={window.innerWidth < 768 ? 'small' : 'middle'}
-        />
-      </Card>
-
-      <Modal
-        title="创建临时URL"
-        open={createModalVisible}
-        onCancel={() => {
-          setCreateModalVisible(false);
-          setCreateMode('manual');
-          setSelectedTemplate(null);
-          form.resetFields();
-        }}
-        footer={null}
-        width={window.innerWidth < 768 ? '95%' : 800}
-        style={{ maxWidth: '95vw' }}
-        bodyStyle={{
-          maxHeight: window.innerWidth < 768 ? '70vh' : 'none',
-          overflowY: window.innerWidth < 768 ? 'auto' : 'visible'
-        }}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleCreateURL}
-        >
-          {/* 创建模式选择 */}
-          <Form.Item label="创建方式">
-            <Select 
-              value={createMode} 
-              onChange={handleCreateModeChange}
-              style={{ width: '100%' }}
-            >
-              <Option value="manual">手动配置</Option>
-              <Option value="template">使用模版</Option>
-            </Select>
-          </Form.Item>
-
-          {/* 模版选择 */}
-          {createMode === 'template' && (
-            <Form.Item 
-              label="选择模版"
-              rules={[{ required: true, message: '请选择一个模版' }]}
-            >
-              <Select 
-                placeholder="请选择模版"
-                value={selectedTemplate?.id}
-                onChange={(templateId) => {
-                  const template = templates.find(t => t.id === templateId);
-                  if (template) {
-                    handleTemplateSelect(template);
-                  }
-                }}
-                style={{ width: '100%' }}
-              >
-                {templates.map(template => (
-                  <Option key={template.id} value={template.id}>
-                    <div>
-                      <div style={{ fontWeight: 'bold' }}>{template.name}</div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>{template.description}</div>
-                    </div>
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-          )}
-
-          {/* 模版变量 */}
-          {createMode === 'template' && selectedTemplate && (
-            <div>
-              <Form.Item label="模版变量">
-                <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px', marginBottom: '16px' }}>
-                  <Text type="secondary">模版：{selectedTemplate.name}</Text>
-                  <br />
-                  <Text type="secondary">{selectedTemplate.description}</Text>
-                </div>
-              </Form.Item>
-              
-              {/* 这里可以动态显示模版变量输入框 */}
-              <Form.List name="variables">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'key']}
-                          rules={[{ required: true, message: '请输入变量名' }]}
-                        >
-                          <Input placeholder="变量名" />
-                        </Form.Item>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'value']}
-                          rules={[{ required: true, message: '请输入变量值' }]}
-                        >
-                          <Input placeholder="变量值" />
-                        </Form.Item>
-                        <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
-                      </Space>
-                    ))}
-                    <Form.Item>
-                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                        添加模版变量
-                      </Button>
-                    </Form.Item>
-                  </>
-                )}
-              </Form.List>
-            </div>
-          )}
-
-          {/* 手动配置模式 */}
-          {createMode === 'manual' && (
-            <>
-              <Form.Item
-                label="容器镜像"
-                name="image"
-                rules={[{ required: true, message: '请输入容器镜像' }]}
-              >
-                <Input placeholder="例如: nginx:latest" />
-              </Form.Item>
-
-              <Form.Item
-                label="副本数"
-                name="replicas"
-                initialValue={1}
-              >
-                <InputNumber min={1} max={10} />
-              </Form.Item>
-
-              <Divider orientation="left">资源配置</Divider>
-              
-              <Form.Item label="CPU请求">
-                <Form.Item name="requests_cpu" noStyle initialValue="100m">
-                  <Input placeholder="100m" addonAfter="cores" />
-                </Form.Item>
-              </Form.Item>
-
-              <Form.Item label="内存请求">
-                <Form.Item name="requests_memory" noStyle initialValue="128Mi">
-                  <Input placeholder="128Mi" addonAfter="bytes" />
-                </Form.Item>
-              </Form.Item>
-
-              <Form.Item label="CPU限制">
-                <Form.Item name="limits_cpu" noStyle initialValue="500m">
-                  <Input placeholder="500m" addonAfter="cores" />
-                </Form.Item>
-              </Form.Item>
-
-              <Form.Item label="内存限制">
-                <Form.Item name="limits_memory" noStyle initialValue="512Mi">
-                  <Input placeholder="512Mi" addonAfter="bytes" />
-                </Form.Item>
-              </Form.Item>
-
-              <Divider orientation="left">环境变量</Divider>
-
-              <Form.List name="env">
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'name']}
-                          rules={[{ required: true, message: '请输入变量名' }]}
-                        >
-                          <Input placeholder="变量名" />
-                        </Form.Item>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'value']}
-                          rules={[{ required: true, message: '请输入变量值' }]}
-                        >
-                          <Input placeholder="变量值" />
-                        </Form.Item>
-                        <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
-                      </Space>
-                    ))}
-                    <Form.Item>
-                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                        添加环境变量
-                      </Button>
-                    </Form.Item>
-                  </>
-                )}
-              </Form.List>
-
-              <Divider orientation="left">容器配置</Divider>
-
-              <Form.Item
-                label="容器名称"
-                name={['container_config', 'container_name']}
-                rules={[
-                  {
-                    pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
-                    message: '容器名称只能包含小写字母、数字和连字符，且必须以字母数字开头和结尾'
-                  }
-                ]}
-              >
-                <Input placeholder="可选，自定义容器名称" />
-              </Form.Item>
-
-              <Form.Item
-                label="工作目录"
-                name={['container_config', 'working_dir']}
-                rules={[
-                  {
-                    pattern: /^\/.*/,
-                    message: '工作目录必须是绝对路径'
-                  }
-                ]}
-              >
-                <Input placeholder="例如: /app" />
-              </Form.Item>
-
-              <Form.Item label="TTY">
-                <Form.Item name={['container_config', 'tty']} noStyle valuePropName="checked">
-                  <input type="checkbox" />
-                </Form.Item>
-                <span style={{ marginLeft: 8 }}>分配TTY</span>
-              </Form.Item>
-
-              <Form.Item label="Stdin">
-                <Form.Item name={['container_config', 'stdin']} noStyle valuePropName="checked">
-                  <input type="checkbox" />
-                </Form.Item>
-                <span style={{ marginLeft: 8 }}>打开Stdin</span>
-              </Form.Item>
-
-              <Divider orientation="left">设备映射</Divider>
-
-              <Form.List name={['container_config', 'devices']}>
-                {(fields, { add, remove }) => (
-                  <>
-                    {fields.map(({ key, name, ...restField }) => (
-                      <Space key={key} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'host_path']}
-                          rules={[
-                            { required: true, message: '请输入主机路径' },
-                            { pattern: /^\/.*/, message: '主机路径必须是绝对路径' }
-                          ]}
-                          style={{ minWidth: 200 }}
-                        >
-                          <Input placeholder="主机路径 (例如: /dev/kvm)" />
-                        </Form.Item>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'container_path']}
-                          rules={[
-                            { required: true, message: '请输入容器路径' },
-                            { pattern: /^\/.*/, message: '容器路径必须是绝对路径' }
-                          ]}
-                          style={{ minWidth: 200 }}
-                        >
-                          <Input placeholder="容器路径 (例如: /dev/kvm)" />
-                        </Form.Item>
-                        <Form.Item
-                          {...restField}
-                          name={[name, 'permissions']}
-                          rules={[
-                            { pattern: /^[rwm]*$/, message: '权限只能包含 r、w、m 字符' }
-                          ]}
-                          style={{ minWidth: 100 }}
-                        >
-                          <Input placeholder="权限 (rwm)" />
-                        </Form.Item>
-                        <Button onClick={() => remove(name)} icon={<DeleteOutlined />} />
-                      </Space>
-                    ))}
-                    <Form.Item>
-                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                        添加设备映射
-                      </Button>
-                    </Form.Item>
-                  </>
-                )}
-              </Form.List>
-
-              <Divider orientation="left">启动配置</Divider>
-
-              <Form.Item
-                label="启动命令"
-                name={['container_config', 'command']}
-              >
-                <Select mode="tags" placeholder="可选，覆盖默认启动命令" />
-              </Form.Item>
-
-              <Form.Item
-                label="启动参数"
-                name={['container_config', 'args']}
-              >
-                <Select mode="tags" placeholder="可选，传递给启动命令的参数" />
-              </Form.Item>
-            </>
-          )}
-
-          {/* TTL配置（公共） */}
-          <Form.Item
-            label="过期时间"
-            name="ttl_seconds"
-            rules={[{ required: true, message: '请选择过期时间' }]}
-          >
-            <Select placeholder="选择过期时间">
-              {ttlOptions.map(option => (
-                <Option key={option.value} value={option.value}>
-                  {option.label}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">
+          <Dialog open={createModalVisible} onOpenChange={setCreateModalVisible}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
                 创建URL
               </Button>
-              <Button 
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>创建临时URL</DialogTitle>
+                <DialogDescription>
+                  选择创建方式：手动配置或使用模板
+                </DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const errors: any = {};
+                  
+                  if (createMode === 'template') {
+                    if (!selectedTemplate) {
+                      errors.template = '请选择一个模板';
+                    }
+                  } else {
+                    if (!formData.image) {
+                      errors.image = '请输入容器镜像';
+                    }
+                  }
+                  
+                  if (!formData.ttl_seconds) {
+                    errors.ttl_seconds = '请选择过期时间';
+                  }
+                  
+                  if (Object.keys(errors).length > 0) {
+                    setFormErrors(errors);
+                    return;
+                  }
+                  
+                  handleCreateURL(formData);
+                }}
+                className="space-y-4"
+              >
+                {/* 创建模式选择 */}
+                <div className="space-y-2">
+                  <Label>创建方式</Label>
+                  <Select value={createMode} onValueChange={(value: 'manual' | 'template') => {
+                    setCreateMode(value);
+                    setSelectedTemplate(null);
+                    setFormData({});
+                    setFormErrors({});
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">手动配置</SelectItem>
+                      <SelectItem value="template">使用模板</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 模板选择 */}
+                {createMode === 'template' && (
+                  <div className="space-y-2">
+                    <Label>选择模板 *</Label>
+                    <Select 
+                      value={selectedTemplate?.id || ''}
+                      onValueChange={(templateId) => {
+                        const template = templates.find(t => t.id === templateId);
+                        if (template) {
+                          setSelectedTemplate(template);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className={formErrors.template ? 'border-destructive' : ''}>
+                        <SelectValue placeholder="请选择模板" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templates.map(template => (
+                          <SelectItem key={template.id} value={template.id}>
+                            <div>
+                              <div className="font-bold">{template.name}</div>
+                              <div className="text-xs text-muted-foreground">{template.description}</div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {formErrors.template && (
+                      <p className="text-sm text-destructive">{formErrors.template}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* 手动配置模式 */}
+                {createMode === 'manual' && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>容器镜像 *</Label>
+                      <Input
+                        value={formData.image || ''}
+                        onChange={(e) => {
+                          setFormData(prev => ({ ...prev, image: e.target.value }));
+                          if (formErrors.image) setFormErrors(prev => ({ ...prev, image: undefined }));
+                        }}
+                        placeholder="例如: nginx:latest"
+                        className={formErrors.image ? 'border-destructive' : ''}
+                      />
+                      {formErrors.image && (
+                        <p className="text-sm text-destructive">{formErrors.image}</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>副本数</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={formData.replicas || 1}
+                        onChange={(e) => setFormData(prev => ({ ...prev, replicas: parseInt(e.target.value) || 1 }))}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* TTL配置（公共） */}
+                <div className="space-y-2">
+                  <Label>过期时间 *</Label>
+                  <Select 
+                    value={formData.ttl_seconds?.toString() || ''}
+                    onValueChange={(value) => {
+                      setFormData(prev => ({ ...prev, ttl_seconds: parseInt(value) }));
+                      if (formErrors.ttl_seconds) setFormErrors(prev => ({ ...prev, ttl_seconds: undefined }));
+                    }}
+                  >
+                    <SelectTrigger className={formErrors.ttl_seconds ? 'border-destructive' : ''}>
+                      <SelectValue placeholder="选择过期时间" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ttlOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value.toString()}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.ttl_seconds && (
+                    <p className="text-sm text-destructive">{formErrors.ttl_seconds}</p>
+                  )}
+                </div>
+
+                {/* Ingress Host配置（可选） */}
+                <div className="space-y-2">
+                  <Label>Ingress Host</Label>
+                  <Input
+                    value={formData.ingress_host || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, ingress_host: e.target.value }))}
+                    placeholder="例如: myapp.example.com（可选）"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    留空将使用系统默认的ingress host
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setCreateModalVisible(false);
+                      setCreateMode('manual');
+                      setSelectedTemplate(null);
+                      setFormData({});
+                      setFormErrors({});
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button type="submit">
+                    创建URL
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      {/* 编辑URL对话框 */}
+      <Dialog open={editModalVisible} onOpenChange={setEditModalVisible}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>编辑URL</DialogTitle>
+            <DialogDescription>
+              修改URL的配置信息
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const errors: any = {};
+
+              if (!formData.image) {
+                errors.image = '请输入容器镜像';
+              }
+
+              if (!formData.ttl_seconds) {
+                errors.ttl_seconds = '请选择过期时间';
+              }
+
+              if (Object.keys(errors).length > 0) {
+                setFormErrors(errors);
+                return;
+              }
+
+              handleUpdateURL();
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label>容器镜像 *</Label>
+              <Input
+                value={formData.image || ''}
+                onChange={(e) => {
+                  setFormData(prev => ({ ...prev, image: e.target.value }));
+                  if (formErrors.image) setFormErrors(prev => ({ ...prev, image: undefined }));
+                }}
+                placeholder="例如: nginx:latest"
+                className={formErrors.image ? 'border-destructive' : ''}
+              />
+              {formErrors.image && (
+                <p className="text-sm text-destructive">{formErrors.image}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>副本数</Label>
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                value={formData.replicas || 1}
+                onChange={(e) => setFormData(prev => ({ ...prev, replicas: parseInt(e.target.value) || 1 }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>过期时间 *</Label>
+              <Select
+                value={formData.ttl_seconds?.toString() || ''}
+                onValueChange={(value) => {
+                  setFormData(prev => ({ ...prev, ttl_seconds: parseInt(value) }));
+                  if (formErrors.ttl_seconds) setFormErrors(prev => ({ ...prev, ttl_seconds: undefined }));
+                }}
+              >
+                <SelectTrigger className={formErrors.ttl_seconds ? 'border-destructive' : ''}>
+                  <SelectValue placeholder="选择过期时间" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ttlOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value.toString()}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {formErrors.ttl_seconds && (
+                <p className="text-sm text-destructive">{formErrors.ttl_seconds}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Ingress Host</Label>
+              <Input
+                value={formData.ingress_host || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, ingress_host: e.target.value }))}
+                placeholder="例如: myapp.example.com（可选）"
+              />
+              <p className="text-sm text-muted-foreground">
+                留空将使用系统默认的ingress host
+              </p>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => {
-                  setCreateModalVisible(false);
-                  setCreateMode('manual');
-                  setSelectedTemplate(null);
-                  form.resetFields();
+                  setEditModalVisible(false);
+                  setEditingURL(null);
+                  setFormData({});
+                  setFormErrors({});
                 }}
               >
                 取消
               </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
+              <Button type="submit">
+                更新URL
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 统计卡片 */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">总URL数</CardTitle>
+            <Server className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalUrls}</div>
+            <p className="text-xs text-muted-foreground">
+              当前项目的所有URL
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">活跃URL</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{stats.activeUrls}</div>
+            <p className="text-xs text-muted-foreground">
+              正在运行中的URL
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">等待中</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">{stats.pendingUrls}</div>
+            <p className="text-xs text-muted-foreground">
+              创建或等待部署中
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">失败</CardTitle>
+            <Settings className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{stats.failedUrls}</div>
+            <p className="text-xs text-muted-foreground">
+              部署失败需要处理
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* URL列表 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>URL 列表</CardTitle>
+          <CardDescription>
+            管理项目中的所有临时URL
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {urlsLoading ? (
+            <div className="flex justify-center items-center py-12">
+              <Spinner size="lg" tip="加载中..." />
+            </div>
+          ) : urls.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Server className="mx-auto h-12 w-12 opacity-50" />
+              <h3 className="mt-4 text-lg font-semibold">暂无URL</h3>
+              <p className="text-sm">点击上方"创建URL"按钮开始创建您的第一个临时URL</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>URL路径</TableHead>
+                    <TableHead className="hidden md:table-cell">镜像/模板</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="hidden lg:table-cell">副本数</TableHead>
+                    <TableHead className="hidden lg:table-cell">过期时间</TableHead>
+                    <TableHead className="hidden lg:table-cell">创建时间</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {urls.map((url) => {
+                    const statusConfig = {
+                      draft: { variant: 'secondary' as const, text: '草稿' },
+                      creating: { variant: 'default' as const, text: '创建中' },
+                      waiting: { variant: 'outline' as const, text: '等待中' },
+                      active: { variant: 'default' as const, text: '运行中' },
+                      deleting: { variant: 'destructive' as const, text: '删除中' },
+                      deleted: { variant: 'secondary' as const, text: '已删除' },
+                      failed: { variant: 'destructive' as const, text: '失败' },
+                    };
+                    const config = statusConfig[url.status as keyof typeof statusConfig] || { variant: 'secondary' as const, text: url.status };
+                    
+                    return (
+                      <TableRow key={url.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
+                              {url.path}
+                            </code>
+                            {url.status === 'active' && (
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => window.open(`https://example.com${url.path}`, '_blank')}
+                                >
+                                  <Eye className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => copyToClipboard(`https://example.com${url.path}`)}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {url.template ? (
+                            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                              <Server className="mr-1 h-3 w-3" />
+                              {url.template.name}
+                            </Badge>
+                          ) : (
+                            <span className="text-sm font-mono">{url.image}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={config.variant}>{config.text}</Badge>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">{url.replicas}</TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          <div className="text-sm space-y-1">
+                            <div>{formatDate(url.expire_at)}</div>
+                            <div className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> {getTimeUntilExpiry(url.expire_at)}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          <span className="text-sm text-muted-foreground">
+                            {formatDate(url.created_at)}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {(url.status === 'draft' || url.status === 'failed') && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleDeployURL(url.id)}
+                                className="flex items-center gap-1"
+                              >
+                                <Rocket className="h-3 w-3" />
+                                <span className="hidden sm:inline">
+                                  {url.status === 'failed' ? '重新部署' : '部署'}
+                                </span>
+                              </Button>
+                            )}
+                            {/* 详情按钮 */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => navigate(`/urls/${url.id}`)}
+                              className="flex items-center gap-1"
+                            >
+                              <Eye className="h-3 w-3" />
+                              <span className="hidden sm:inline">详情</span>
+                            </Button>
+
+                            {/* 编辑按钮 */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditURL(url)}
+                              className="flex items-center gap-1"
+                            >
+                              <Settings className="h-3 w-3" />
+                              <span className="hidden sm:inline">编辑</span>
+                            </Button>
+
+                            {url.status !== 'deleted' && (
+                              <Popconfirm
+                                title="确定要删除这个URL吗？"
+                                description="删除后将无法访问"
+                                onConfirm={() => handleDeleteURL(url.id)}
+                                okText="确定"
+                                cancelText="取消"
+                              >
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="flex items-center gap-1"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                  <span className="hidden sm:inline">删除</span>
+                                </Button>
+                              </Popconfirm>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };

@@ -96,30 +96,14 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户信息
-	userID, err := middleware.GetCurrentUserID(c)
+	// 获取当前用户ID（仍然需要认证）
+	_, err = middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
-
-	// 检查权限：普通用户只能查看自己的项目
-	if userRole != models.RoleAdmin {
-		if err := h.projectService.CheckProjectOwnership(c.Request.Context(), id, userID); err != nil {
-			if err.Error() == "project not found" {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
-				return
-			}
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
-	}
+	// 移除权限检查，所有用户都可以查看所有项目
 
 	project, err := h.projectService.GetProject(c.Request.Context(), id)
 	if err != nil {
@@ -151,22 +135,17 @@ func (h *ProjectHandler) ListProjects(c *gin.Context) {
 		offset = 0
 	}
 
-	// 获取当前用户信息
-	userID, err := middleware.GetCurrentUserID(c)
+	// 获取当前用户ID（仍然需要认证）
+	_, err = middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
+	// 移除权限检查，所有用户都可以查看所有项目
+	isAdmin := true // 所有用户都被视为管理员
 
-	isAdmin := userRole == models.RoleAdmin
-
-	projects, total, err := h.projectService.ListProjects(c.Request.Context(), &userID, isAdmin, limit, offset)
+	projects, total, err := h.projectService.ListProjects(c.Request.Context(), nil, isAdmin, limit, offset)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list projects")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list projects"})
@@ -190,30 +169,14 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户信息
-	userID, err := middleware.GetCurrentUserID(c)
+	// 获取当前用户ID（仍然需要认证）
+	_, err = middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
-
-	// 检查权限：普通用户只能更新自己的项目
-	if userRole != models.RoleAdmin {
-		if err := h.projectService.CheckProjectOwnership(c.Request.Context(), id, userID); err != nil {
-			if err.Error() == "project not found" {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
-				return
-			}
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
-	}
+	// 移除权限检查，所有用户都可以更新所有项目
 
 	var req struct {
 		Name        string `json:"name" binding:"required,min=1,max=100"`
@@ -254,30 +217,14 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户信息
-	userID, err := middleware.GetCurrentUserID(c)
+	// 获取当前用户ID（仍然需要认证）
+	_, err = middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
-
-	// 检查权限：普通用户只能删除自己的项目
-	if userRole != models.RoleAdmin {
-		if err := h.projectService.CheckProjectOwnership(c.Request.Context(), id, userID); err != nil {
-			if err.Error() == "project not found" {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
-				return
-			}
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-			return
-		}
-	}
+	// 移除权限检查，所有用户都可以删除所有项目
 
 	err = h.projectService.DeleteProject(c.Request.Context(), id)
 	if err != nil {

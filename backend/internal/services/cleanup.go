@@ -283,8 +283,57 @@ func (s *CleanupService) ForceCleanupURL(ctx context.Context, id uuid.UUID) erro
 		return nil
 	}
 
-	// 执行清理
-	return s.cleanupURL(ctx, url)
+	// 执行清理和删除
+	return s.forceDeleteURL(ctx, url)
+}
+
+// forceDeleteURL 强制删除URL（清理资源并从数据库删除）
+func (s *CleanupService) forceDeleteURL(ctx context.Context, url *models.EphemeralURL) error {
+	logrus.WithFields(logrus.Fields{
+		"url_id": url.ID,
+		"path":   url.Path,
+		"status": url.Status,
+	}).Info("Force deleting URL")
+
+	// 更新状态为删除中
+	if err := s.updateURLStatus(ctx, url.ID, models.StatusDeleting, ""); err != nil {
+		return fmt.Errorf("failed to update status to deleting: %w", err)
+	}
+
+	// 删除Kubernetes资源
+	if err := s.deleteKubernetesResources(ctx, url); err != nil {
+		logrus.WithError(err).Error("Failed to delete Kubernetes resources")
+		// 即使K8s资源删除失败，也继续删除数据库记录
+	}
+
+	// 从数据库中删除URL记录
+	if err := s.deleteURLFromDatabase(ctx, url.ID); err != nil {
+		return fmt.Errorf("failed to delete URL from database: %w", err)
+	}
+
+	logrus.WithField("url_id", url.ID).Info("URL force deletion completed")
+	return nil
+}
+
+// deleteURLFromDatabase 从数据库中删除URL记录
+func (s *CleanupService) deleteURLFromDatabase(ctx context.Context, id uuid.UUID) error {
+	query := "DELETE FROM ephemeral_urls WHERE id = $1"
+	result, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete URL from database: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("URL not found")
+	}
+
+	logrus.WithField("url_id", id).Info("URL deleted from database")
+	return nil
 }
 
 // getURLWithProject 获取URL及其项目信息
@@ -517,16 +566,16 @@ func (s *CleanupService) forceCleanupExpiredURLs(ctx context.Context) error {
 			continue
 		}
 
-		// 强制清理
-		if err := s.cleanupURL(ctx, &url); err != nil {
-			logrus.WithError(err).WithField("url_id", url.ID).Error("Failed to force cleanup expired URL")
+		// 强制删除
+		if err := s.forceDeleteURL(ctx, &url); err != nil {
+			logrus.WithError(err).WithField("url_id", url.ID).Error("Failed to force delete expired URL")
 		} else {
 			cleanedCount++
 		}
 	}
 
 	if cleanedCount > 0 {
-		logrus.WithField("count", cleanedCount).Info("Force cleaned up expired URLs")
+		logrus.WithField("count", cleanedCount).Info("Force deleted expired URLs")
 	}
 
 	return nil

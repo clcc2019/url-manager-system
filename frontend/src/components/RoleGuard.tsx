@@ -36,18 +36,12 @@ export default function RoleGuard({
 // 便捷的权限检查hooks
 export function useRoleCheck() {
   const { user } = useAuth();
-  
-  const isAdmin = user?.role === 'admin';
-  
-  // 添加调试日志
-  React.useEffect(() => {
-    console.log('RoleGuard: useRoleCheck', { user: user?.username, role: user?.role, isAdmin });
-  }, [user, isAdmin]);
 
   return {
-    isAdmin,
-    isUser: user?.role === 'user',
-    hasRole: (role: 'admin' | 'user') => user?.role === role,
-    hasAnyRole: (roles: ('admin' | 'user')[]) => user ? roles.includes(user.role) : false,
+    // 所有用户都被视为管理员
+    isAdmin: !!user,
+    isUser: !!user,
+    hasRole: (role: 'admin' | 'user') => !!user,
+    hasAnyRole: (roles: ('admin' | 'user')[]) => !!user,
   };
 }

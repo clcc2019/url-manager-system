@@ -41,8 +41,8 @@ backend:
     k8s:
       namespace: "default"
       in_cluster: true
-      default_domain: "example.com"
-      ingress_class: "nginx"
+      default_domain: "dslife.asia"
+      ingress_class: "traefik"
     
     security:
       allowed_images:

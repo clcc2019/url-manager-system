@@ -24,8 +24,8 @@ k8s:
   namespace: "default"
   in_cluster: false
   config_path: ""
-  default_domain: "example.com"
-  ingress_class: "nginx"
+  default_domain: "url.dslife.asia"
+  ingress_class: "traefik"
 
 security:
   jwt_secret: "your-jwt-secret-key-should-be-at-least-32-characters-long"
@@ -34,7 +34,7 @@ security:
     - "nginx:1.21"
     - "httpd:latest"
     - "httpd:2.4"
-    - "registry.example.com/"
+    - "registry.dslife.asia/"
   max_replicas: 3
   max_ttl_seconds: 604800  # 7 days
   default_cpu_limit: "500m"

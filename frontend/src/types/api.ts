@@ -12,6 +12,13 @@ export interface EnvironmentVar {
   value: string;
 }
 
+export interface LogEntry {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  details?: string;
+}
+
 export interface DeviceMapping {
   host_path: string;
   container_path: string;
@@ -54,6 +61,8 @@ export interface EphemeralURL {
   k8s_service_name?: string;
   k8s_secret_name?: string;
   error_message?: string;
+  logs?: LogEntry[];
+  ingress_host?: string;
   started_at?: string;
   expire_at: string;
   created_at: string;
@@ -74,11 +83,22 @@ export interface CreateURLRequest {
   replicas?: number;
   resources?: ResourceLimits;
   container_config?: ContainerConfig;
+  ingress_host?: string;
 }
 
 export interface CreateURLResponse {
   url: string;
   id: string;
+}
+
+export interface UpdateURLRequest {
+  image?: string;
+  env?: EnvironmentVar[];
+  ttl_seconds?: number;
+  replicas?: number;
+  resources?: ResourceLimits;
+  container_config?: ContainerConfig;
+  ingress_host?: string;
 }
 
 export interface ListProjectsResponse {

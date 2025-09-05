@@ -64,18 +64,14 @@ func (h *TemplateHandler) GetTemplate(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户信息
-	userID, err := middleware.GetCurrentUserID(c)
+	// 获取当前用户ID（仍然需要认证）
+	_, err = middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
+	// 移除权限检查，所有用户都可以查看所有模版
 
 	template, err := h.templateService.GetTemplate(c.Request.Context(), id)
 	if err != nil {
@@ -85,12 +81,6 @@ func (h *TemplateHandler) GetTemplate(c *gin.Context) {
 		}
 		logrus.WithError(err).Error("Failed to get template")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get template"})
-		return
-	}
-
-	// 检查权限：普通用户只能查看自己的模版
-	if userRole != models.RoleAdmin && template.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
@@ -113,22 +103,17 @@ func (h *TemplateHandler) ListTemplates(c *gin.Context) {
 		offset = 0
 	}
 
-	// 获取当前用户信息
-	userID, err := middleware.GetCurrentUserID(c)
+	// 获取当前用户ID（仍然需要认证）
+	_, err = middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
+	// 移除权限检查，所有用户都可以查看所有模版
+	isAdmin := true // 所有用户都被视为管理员
 
-	isAdmin := userRole == models.RoleAdmin
-
-	templates, total, err := h.templateService.ListTemplates(c.Request.Context(), &userID, isAdmin, limit, offset)
+	templates, total, err := h.templateService.ListTemplates(c.Request.Context(), nil, isAdmin, limit, offset)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list templates")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list templates"})
@@ -152,20 +137,15 @@ func (h *TemplateHandler) UpdateTemplate(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户信息
+	// 获取当前用户ID（仍然需要认证）
 	userID, err := middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
-
-	isAdmin := userRole == models.RoleAdmin
+	// 移除权限检查，所有用户都被视为管理员
+	isAdmin := true
 
 	var req models.UpdateAppTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -203,20 +183,15 @@ func (h *TemplateHandler) DeleteTemplate(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户信息
+	// 获取当前用户ID（仍然需要认证）
 	userID, err := middleware.GetCurrentUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
 		return
 	}
 
-	userRole, err := middleware.GetCurrentUserRole(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
-		return
-	}
-
-	isAdmin := userRole == models.RoleAdmin
+	// 移除权限检查，所有用户都被视为管理员
+	isAdmin := true
 
 	err = h.templateService.DeleteTemplate(c.Request.Context(), id, userID, isAdmin)
 	if err != nil {

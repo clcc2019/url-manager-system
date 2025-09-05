@@ -1,4 +1,4 @@
-import { formatDate, formatDuration, getTimeUntilExpiry } from '../date';
+import { formatDate, formatDuration, getTimeUntilExpiry } from './date';
 import { describe, it, expect } from 'vitest';
 
 describe('Date Utils', () => {

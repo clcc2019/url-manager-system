@@ -1,7 +1,15 @@
 import React from 'react';
-import { Avatar, Dropdown, Space, Button } from 'antd';
-import { UserOutlined, LogoutOutlined, SettingOutlined } from '@ant-design/icons';
-import type { MenuProps } from 'antd';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { User, LogOut, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function UserMenu() {
@@ -13,60 +21,53 @@ export default function UserMenu() {
     logout();
   };
 
-  const items: MenuProps['items'] = [
-    {
-      key: 'profile',
-      icon: <UserOutlined />,
-      label: '个人信息',
-      disabled: true, // 暂时禁用，后续可以添加个人信息页面
-    },
-    {
-      key: 'settings',
-      icon: <SettingOutlined />,
-      label: '设置',
-      disabled: true, // 暂时禁用，后续可以添加设置页面
-    },
-    {
-      type: 'divider',
-    },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: '退出登录',
-      onClick: handleLogout,
-    },
-  ];
-
   return (
-    <Dropdown
-      menu={{ items }}
-      placement="bottomRight"
-      arrow
-    >
-      <Button type="text" style={{ height: 'auto', padding: '8px 12px' }}>
-        <Space>
-          <Avatar
-            size="small"
-            icon={<UserOutlined />}
-            style={{ backgroundColor: '#1890ff' }}
-          />
-          <span style={{ color: '#fff' }}>
-            {user.username}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" className="flex items-center space-x-2">
+          <div className="flex items-center justify-center w-7 h-7 bg-primary rounded-full">
+            <User className="h-4 w-4 text-primary-foreground" />
+          </div>
+          <div className="flex items-center space-x-1">
+            <span className="text-sm font-medium">{user.username}</span>
             {user.role === 'admin' && (
-              <span style={{ 
-                marginLeft: '4px', 
-                fontSize: '12px', 
-                opacity: 0.8,
-                background: 'rgba(255,255,255,0.2)',
-                padding: '1px 4px',
-                borderRadius: '2px'
-              }}>
+              <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
                 管理员
-              </span>
+              </Badge>
             )}
-          </span>
-        </Space>
-      </Button>
-    </Dropdown>
+          </div>
+        </Button>
+      </DropdownMenuTrigger>
+      
+      <DropdownMenuContent className="w-56" align="end">
+        <DropdownMenuLabel className="font-normal">
+          <div className="flex flex-col space-y-1">
+            <p className="text-sm font-medium leading-none">{user.username}</p>
+            <p className="text-xs leading-none text-muted-foreground">
+              {user.role === 'admin' ? '管理员账户' : '普通用户'}
+            </p>
+          </div>
+        </DropdownMenuLabel>
+        
+        <DropdownMenuSeparator />
+        
+        <DropdownMenuItem disabled>
+          <User className="mr-2 h-4 w-4" />
+          <span>个人信息</span>
+        </DropdownMenuItem>
+        
+        <DropdownMenuItem disabled>
+          <Settings className="mr-2 h-4 w-4" />
+          <span>设置</span>
+        </DropdownMenuItem>
+        
+        <DropdownMenuSeparator />
+        
+        <DropdownMenuItem onClick={handleLogout}>
+          <LogOut className="mr-2 h-4 w-4" />
+          <span>退出登录</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

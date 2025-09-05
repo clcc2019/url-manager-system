@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"url-manager-system/backend/internal/db/models"
 	"url-manager-system/backend/internal/services"
 
@@ -224,4 +225,38 @@ func (h *URLHandler) CreateEphemeralURLFromTemplate(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, response)
+}
+
+// UpdateEphemeralURL 更新临时URL
+func (h *URLHandler) UpdateEphemeralURL(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL ID"})
+		return
+	}
+
+	var req models.UpdateEphemeralURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	url, err := h.urlService.UpdateEphemeralURL(c.Request.Context(), id, &req)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to update ephemeral URL")
+
+		// 根据错误类型返回不同的状态码
+		switch {
+		case err.Error() == "URL not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+		case strings.Contains(err.Error(), "validation failed"):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update ephemeral URL"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, url)
 }

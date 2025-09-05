@@ -1,4 +1,4 @@
-import { ApiService } from '../api';
+import { ApiService } from './api';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock axios

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -84,11 +85,20 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 		Resources:       req.Resources,
 		ContainerConfig: req.ContainerConfig,
 		Status:          models.StatusCreating,
-		TTLSeconds:      req.TTLSeconds, // 保存TTL值
-		// 注意：这里先设置一个临时过期时间，实际过期时间将在Pod Ready后计算
-		ExpireAt:  time.Now().Add(24 * time.Hour), // 临时设置24小时，防止过早被清理
+		TTLSeconds:      req.TTLSeconds,  // 保存TTL值
+		IngressHost:     req.IngressHost, // 保存自定义ingress host
+		// 注意：只有在active状态时才开始计算过期时间
+		ExpireAt:  time.Now().Add(365 * 24 * time.Hour), // 设置为1年后的时间，在active前不会过期
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		Logs: []models.LogEntry{
+			{
+				Timestamp: time.Now(),
+				Level:     "info",
+				Message:   "URL创建请求已提交",
+				Details:   fmt.Sprintf("镜像: %s, 副本数: %d", req.Image, req.Replicas),
+			},
+		},
 	}
 
 	// 设置默认值
@@ -129,13 +139,13 @@ func (s *URLService) CreateEphemeralURL(ctx context.Context, projectID uuid.UUID
 		return nil, fmt.Errorf("failed to insert URL record: %w", err)
 	}
 
-	// 在开发环境中，不实际创建Kubernetes资源，只保存到数据库
-	if s.config.Environment == "development" {
-		// 开发环境：设置为draft状态，不部署
-		s.updateURLStatus(ctx, url.ID, "draft", "")
-		logrus.Info("URL created in draft mode (development environment)")
+	// 检查Kubernetes资源管理器是否可用
+	if s.resourceManager == nil || s.ingressManager == nil {
+		// Kubernetes不可用，设置为draft状态
+		s.updateURLStatus(ctx, url.ID, "draft", "Kubernetes not available")
+		logrus.Warn("Kubernetes not available, URL created in draft mode")
 	} else {
-		// 生产环境：实际创建Kubernetes资源
+		// Kubernetes可用，创建资源并设置为waiting状态
 		if err := s.createKubernetesResources(ctx, url, project.Name); err != nil {
 			logrus.WithError(err).Error("Failed to create Kubernetes resources")
 			// 更新状态为失败
@@ -239,6 +249,125 @@ func (s *URLService) GetEphemeralURL(ctx context.Context, id uuid.UUID) (*models
 	}
 
 	return url, nil
+}
+
+// UpdateEphemeralURL 更新临时URL
+func (s *URLService) UpdateEphemeralURL(ctx context.Context, id uuid.UUID, req *models.UpdateEphemeralURLRequest) (*models.EphemeralURL, error) {
+	// 获取现有URL
+	existingURL, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 验证更新请求
+	if err := s.validateUpdateRequest(req); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+
+	// 构建更新语句
+	setParts := []string{}
+	args := []interface{}{}
+	argIndex := 1
+
+	if req.Image != "" {
+		setParts = append(setParts, fmt.Sprintf("image = $%d", argIndex))
+		args = append(args, req.Image)
+		argIndex++
+	}
+
+	if req.Env != nil {
+		setParts = append(setParts, fmt.Sprintf("env = $%d", argIndex))
+		args = append(args, req.Env)
+		argIndex++
+	}
+
+	if req.TTLSeconds > 0 {
+		setParts = append(setParts, fmt.Sprintf("ttl_seconds = $%d", argIndex))
+		args = append(args, req.TTLSeconds)
+		argIndex++
+	}
+
+	if req.Replicas > 0 {
+		setParts = append(setParts, fmt.Sprintf("replicas = $%d", argIndex))
+		args = append(args, req.Replicas)
+		argIndex++
+	}
+
+	if req.Resources.Requests.CPU != "" || req.Resources.Requests.Memory != "" ||
+		req.Resources.Limits.CPU != "" || req.Resources.Limits.Memory != "" {
+		setParts = append(setParts, fmt.Sprintf("resources = $%d", argIndex))
+		args = append(args, req.Resources)
+		argIndex++
+	}
+
+	if req.ContainerConfig.Command != nil || req.ContainerConfig.Args != nil ||
+		req.ContainerConfig.WorkingDir != "" || req.ContainerConfig.TTY ||
+		req.ContainerConfig.Stdin || len(req.ContainerConfig.Devices) > 0 {
+		setParts = append(setParts, fmt.Sprintf("container_config = $%d", argIndex))
+		args = append(args, req.ContainerConfig)
+		argIndex++
+	}
+
+	if req.IngressHost != nil {
+		setParts = append(setParts, fmt.Sprintf("ingress_host = $%d", argIndex))
+		args = append(args, *req.IngressHost)
+		argIndex++
+	}
+
+	if len(setParts) == 0 {
+		return nil, fmt.Errorf("no fields to update")
+	}
+
+	// 添加更新时间
+	setParts = append(setParts, fmt.Sprintf("updated_at = $%d", argIndex))
+	args = append(args, time.Now())
+	argIndex++
+
+	// 执行更新
+	query := fmt.Sprintf("UPDATE ephemeral_urls SET %s WHERE id = $%d",
+		strings.Join(setParts, ", "), argIndex)
+	args = append(args, id)
+
+	_, err = s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update URL: %w", err)
+	}
+
+	// 如果状态为active且TTL被更新，重新计算过期时间
+	if existingURL.Status == models.StatusActive && req.TTLSeconds > 0 {
+		newExpireAt := time.Now().Add(time.Duration(req.TTLSeconds) * time.Second)
+		err = s.updateURLExpireAt(ctx, id, newExpireAt)
+		if err != nil {
+			logrus.WithError(err).WithField("url_id", id).Error("Failed to update expire time")
+		}
+	}
+
+	// 获取更新后的URL
+	updatedURL, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated URL: %w", err)
+	}
+
+	logrus.WithField("url_id", id).Info("URL updated successfully")
+	return updatedURL, nil
+}
+
+// validateUpdateRequest 验证更新请求
+func (s *URLService) validateUpdateRequest(req *models.UpdateEphemeralURLRequest) error {
+	if req.TTLSeconds > 0 && (req.TTLSeconds < 60 || req.TTLSeconds > 604800) {
+		return fmt.Errorf("TTL seconds must be between 60 and 604800")
+	}
+	if req.Replicas > 0 && (req.Replicas < 1 || req.Replicas > 10) {
+		return fmt.Errorf("replicas must be between 1 and 10")
+	}
+	return nil
+}
+
+// updateURLExpireAt 更新URL过期时间
+func (s *URLService) updateURLExpireAt(ctx context.Context, id uuid.UUID, expireAt time.Time) error {
+	query := "UPDATE ephemeral_urls SET expire_at = $1, updated_at = $2 WHERE id = $3"
+	_, err := s.db.ExecContext(ctx, query, expireAt, time.Now(), id)
+	return err
 }
 
 // ListEphemeralURLs 列出项目的临时URL
@@ -512,18 +641,85 @@ func (s *URLService) deleteKubernetesResources(ctx context.Context, url *models.
 
 // updateURLStatus 更新URL状态
 func (s *URLService) updateURLStatus(ctx context.Context, id uuid.UUID, status, errorMessage string) error {
-	query := `
-		UPDATE ephemeral_urls 
-		SET status = $2, error_message = $3, updated_at = $4
-		WHERE id = $1
-	`
-
-	var errMsg *string
-	if errorMessage != "" {
-		errMsg = &errorMessage
+	// 获取当前URL信息
+	url, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get URL: %w", err)
 	}
 
-	_, err := s.db.ExecContext(ctx, query, id, status, errMsg, time.Now())
+	// 构建更新查询
+	var query string
+	var args []interface{}
+
+	if status == models.StatusActive {
+		// 当状态变为active时，开始计算过期时间
+		newExpireAt := time.Now().Add(time.Duration(url.TTLSeconds) * time.Second)
+		query = `
+			UPDATE ephemeral_urls
+			SET status = $2, error_message = $3, started_at = NOW(), expire_at = $4, updated_at = NOW(),
+				logs = logs || $5::jsonb
+			WHERE id = $1
+		`
+		logEntry := models.LogEntry{
+			Timestamp: time.Now(),
+			Level:     "info",
+			Message:   "URL已成功部署并开始运行",
+			Details:   fmt.Sprintf("过期时间: %s", newExpireAt.Format("2006-01-02 15:04:05")),
+		}
+		logsJSON, _ := json.Marshal([]models.LogEntry{logEntry})
+
+		var errMsg *string
+		if errorMessage != "" {
+			errMsg = &errorMessage
+		}
+		args = []interface{}{id, status, errMsg, newExpireAt, string(logsJSON)}
+	} else {
+		// 其他状态更新
+		query = `
+			UPDATE ephemeral_urls
+			SET status = $2, error_message = $3, updated_at = $4,
+				logs = logs || $5::jsonb
+			WHERE id = $1
+		`
+
+		var logEntry models.LogEntry
+		switch status {
+		case models.StatusFailed:
+			logEntry = models.LogEntry{
+				Timestamp: time.Now(),
+				Level:     "error",
+				Message:   "URL部署失败",
+				Details:   errorMessage,
+			}
+		case models.StatusDeleting:
+			logEntry = models.LogEntry{
+				Timestamp: time.Now(),
+				Level:     "info",
+				Message:   "开始删除URL",
+			}
+		case models.StatusDeleted:
+			logEntry = models.LogEntry{
+				Timestamp: time.Now(),
+				Level:     "info",
+				Message:   "URL已成功删除",
+			}
+		default:
+			logEntry = models.LogEntry{
+				Timestamp: time.Now(),
+				Level:     "info",
+				Message:   fmt.Sprintf("状态更新为: %s", status),
+			}
+		}
+		logsJSON, _ := json.Marshal([]models.LogEntry{logEntry})
+
+		var errMsg *string
+		if errorMessage != "" {
+			errMsg = &errorMessage
+		}
+		args = []interface{}{id, status, errMsg, time.Now(), string(logsJSON)}
+	}
+
+	_, err = s.db.ExecContext(ctx, query, args...)
 	return err
 }
 
@@ -772,7 +968,17 @@ func (s *URLService) monitorPodStatus() {
 		if deploymentName.Valid && s.resourceManager != nil {
 			ready, err := s.resourceManager.CheckDeploymentReady(ctx, deploymentName.String)
 			if err != nil {
-				logrus.WithError(err).WithField("url_id", urlID).Error("Failed to check deployment readiness")
+				// 如果是deployment不存在的错误，说明URL可能在draft状态，不应该处于waiting状态
+				if strings.Contains(err.Error(), "not found") {
+					logrus.WithFields(logrus.Fields{
+						"url_id":          urlID,
+						"deployment_name": deploymentName.String,
+					}).Warn("Deployment not found for waiting URL, this might indicate a state inconsistency")
+					// 将URL标记为失败状态
+					s.updateURLStatus(ctx, urlID, models.StatusFailed, "Deployment not found")
+				} else {
+					logrus.WithError(err).WithField("url_id", urlID).Error("Failed to check deployment readiness")
+				}
 				continue
 			}
 

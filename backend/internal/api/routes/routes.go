@@ -35,7 +35,7 @@ func SetupRoutes(serviceContainer *services.Container) *gin.Engine {
 	{
 		// 公开路由（不需要认证）
 		setupAuthRoutes(api, serviceContainer)
-		
+
 		// 需要认证的路由
 		authorized := api.Group("")
 		authorized.Use(middleware.AuthMiddleware(serviceContainer.AuthService))
@@ -77,6 +77,7 @@ func setupURLRoutes(api *gin.RouterGroup, serviceContainer *services.Container) 
 	urls := api.Group("/urls")
 	{
 		urls.GET("/:id", urlHandler.GetEphemeralURL)
+		urls.PUT("/:id", urlHandler.UpdateEphemeralURL)
 		urls.DELETE("/:id", urlHandler.DeleteEphemeralURL)
 		urls.POST("/:id/deploy", urlHandler.DeployURL)
 		urls.POST("/validate-cleanup", urlHandler.ValidateAndCleanupData)
@@ -120,7 +121,7 @@ func setupUserRoutes(api *gin.RouterGroup, serviceContainer *services.Container)
 		// 用户信息相关
 		users.GET("/profile", authHandler.GetProfile)
 		users.PUT("/password", authHandler.ChangePassword)
-		
+
 		// 管理员功能
 		admin := users.Group("")
 		admin.Use(middleware.AdminMiddleware())
