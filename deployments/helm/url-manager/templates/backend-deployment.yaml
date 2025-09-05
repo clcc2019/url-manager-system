@@ -70,7 +70,7 @@ spec:
               value: {{ .Values.backend.config.k8s.default_domain | quote }}
           volumeMounts:
             - name: config
-              mountPath: /app/config.yaml
+              mountPath: /config.yaml
               subPath: config.yaml
               readOnly: true
       volumes:
