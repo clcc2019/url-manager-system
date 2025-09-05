@@ -53,10 +53,14 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+            - name: nginx-temp
+              mountPath: /tmp
       volumes:
         - name: nginx-config
           configMap:
             name: {{ include "url-manager.fullname" . }}-frontend-nginx
+        - name: nginx-temp
+          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
