@@ -4,7 +4,7 @@ FROM node:18-alpine AS builder
 # 设置工作目录
 WORKDIR /build
 
-# 设置构建时的环境变量
+# 设置构建时的环境变量（可选，主要用于开发环境）
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
@@ -46,11 +46,11 @@ RUN touch /var/run/nginx.pid && \
 USER nginx
 
 # 暴露端口
-EXPOSE 8080
+EXPOSE 80
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1
 
 # 启动NGINX
 CMD ["nginx", "-g", "daemon off;"]

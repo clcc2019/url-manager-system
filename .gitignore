@@ -9,7 +9,7 @@ build/
 *.dll
 *.so
 *.dylib
-helm/
+.tgz
 
 # 忽略测试覆盖率文件
 *.out

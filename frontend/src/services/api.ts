@@ -10,7 +10,10 @@ import type {
   PaginationParams,
 } from '../types/api.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080';
+// 在生产环境中使用相对路径，通过Nginx代理访问后端API
+// 在开发环境中使用环境变量或默认的开发服务器地址
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (import.meta.env.PROD ? '/api/v1' : 'http://127.0.0.1:8080');
 
 // 创建axios实例
 const apiClient = axios.create({
