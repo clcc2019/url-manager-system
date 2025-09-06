@@ -75,6 +75,11 @@ func Load() (*Config, error) {
 	// 读取环境变量
 	viper.AutomaticEnv()
 
+	// 优先使用根路径 /config.yaml（Helm 挂载）
+	if _, statErr := os.Stat("/config.yaml"); statErr == nil {
+		viper.SetConfigFile("/config.yaml")
+	}
+
 	// 尝试读取配置文件
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
