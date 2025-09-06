@@ -66,6 +66,8 @@ func Load() (*Config, error) {
 	viper.AddConfigPath("./backend")
 	viper.AddConfigPath("./configs")
 	viper.AddConfigPath("/etc/url-manager")
+	// 支持 Helm 以 ConfigMap 挂载的根路径 /config.yaml
+	viper.AddConfigPath("/")
 
 	// 设置默认值
 	setDefaults()

@@ -378,9 +378,15 @@ func (s *URLService) UpdateEphemeralURL(ctx context.Context, id uuid.UUID, req *
 
 	logrus.WithField("url_id", id.String()).Info("Database update completed successfully")
 
-	// 如果状态为active且TTL被更新，重新计算过期时间
+	// 如果状态为active且TTL被更新，重新计算过期时间（从 started_at 起算）
 	if existingURL.Status == models.StatusActive && req.TTLSeconds > 0 {
-		newExpireAt := time.Now().Add(time.Duration(req.TTLSeconds) * time.Second)
+		var base time.Time
+		if existingURL.StartedAt != nil && !existingURL.StartedAt.IsZero() {
+			base = *existingURL.StartedAt
+		} else {
+			base = time.Now()
+		}
+		newExpireAt := base.Add(time.Duration(req.TTLSeconds) * time.Second)
 		err = s.updateURLExpireAt(ctx, id, newExpireAt)
 		if err != nil {
 			logrus.WithError(err).WithField("url_id", id).Error("Failed to update expire time")

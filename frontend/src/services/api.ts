@@ -199,12 +199,14 @@ export class ApiService {
 
   static async getURLContainerStatus(id: string): Promise<ContainerStatus[]> {
     const response = await apiClient.get(`/urls/${id}/containers/status`);
-    return response.data;
+    const data = response.data;
+    return Array.isArray(data) ? data : [];
   }
 
   static async getURLPodEvents(id: string): Promise<PodEvent[]> {
     const response = await apiClient.get(`/urls/${id}/events`);
-    return response.data;
+    const data = response.data;
+    return Array.isArray(data) ? data : [];
   }
 
   static async getURLContainerLogs(id: string, containerName?: string, lines?: number): Promise<ContainerLog[]> {
@@ -213,7 +215,8 @@ export class ApiService {
     if (lines) params.append('lines', lines.toString());
     
     const response = await apiClient.get(`/urls/${id}/logs?${params.toString()}`);
-    return response.data;
+    const data = response.data;
+    return Array.isArray(data) ? data : [];
   }
 
   // 健康检查
