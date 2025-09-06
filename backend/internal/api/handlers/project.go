@@ -8,7 +8,6 @@ import (
 	"url-manager-system/backend/internal/api/middleware"
 	"url-manager-system/backend/internal/db/models"
 	"url-manager-system/backend/internal/services"
-	"url-manager-system/backend/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,7 +28,7 @@ func NewProjectHandler(projectService *services.ProjectService) *ProjectHandler 
 
 // validateProjectName 验证项目名称
 func (h *ProjectHandler) validateProjectName(name string) error {
-	// 基本验证
+	// 放宽限制：仅做基本长度校验，不限制字符集
 	name = strings.TrimSpace(name)
 	if len(name) == 0 {
 		return fmt.Errorf("项目名称不能为空")
@@ -37,18 +36,6 @@ func (h *ProjectHandler) validateProjectName(name string) error {
 	if len(name) > 100 {
 		return fmt.Errorf("项目名称不能超过100个字符")
 	}
-
-	// 检查清理后的名称是否有效
-	sanitized := utils.SanitizeKubernetesName(name)
-	if sanitized == "unnamed" {
-		return fmt.Errorf("项目名称包含无效字符，请使用字母、数字、连字符或下划线")
-	}
-
-	// 如果清理后的名称与原名称差异太大，给出警告信息
-	if len(sanitized) < len(name)/2 {
-		return fmt.Errorf("项目名称包含过多特殊字符，建议使用更多的字母和数字")
-	}
-
 	return nil
 }
 
