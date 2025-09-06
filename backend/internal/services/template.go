@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"url-manager-system/backend/internal/db/models"
+	"url-manager-system/backend/internal/utils"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -38,9 +39,21 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, userID uuid.UUID, 
 		return nil, fmt.Errorf("template name '%s' already exists", req.Name)
 	}
 
-	// 验证YAML规范
-	if err := s.validateYamlSpec(req.YamlSpec); err != nil {
-		return nil, fmt.Errorf("invalid YAML specification: %w", err)
+	// 验证YAML格式
+	if err := utils.ValidateYAML(req.YamlSpec); err != nil {
+		return nil, fmt.Errorf("invalid YAML format: %w", err)
+	}
+
+	// 解析YAML到结构化数据
+	parsedSpec, err := utils.ParseYAMLToTemplateSpec(req.YamlSpec)
+	if err != nil {
+		logrus.WithError(err).Warn("Failed to parse YAML spec, using empty parsed spec")
+		parsedSpec = &models.TemplateSpec{}
+	}
+
+	// 如果请求中提供了解析后的规格，使用它
+	if req.ParsedSpec.Image != "" {
+		parsedSpec = &req.ParsedSpec
 	}
 
 	// 创建模版记录
@@ -50,13 +63,14 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, userID uuid.UUID, 
 		Name:        req.Name,
 		Description: req.Description,
 		YamlSpec:    req.YamlSpec,
+		ParsedSpec:  *parsedSpec,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
 	query := `
-		INSERT INTO app_templates (id, user_id, name, description, yaml_spec, created_at, updated_at)
-		VALUES (:id, :user_id, :name, :description, :yaml_spec, :created_at, :updated_at)
+		INSERT INTO app_templates (id, user_id, name, description, yaml_spec, parsed_spec, created_at, updated_at)
+		VALUES (:id, :user_id, :name, :description, :yaml_spec, :parsed_spec, :created_at, :updated_at)
 	`
 
 	_, err = s.db.NamedExecContext(ctx, query, template)
@@ -147,10 +161,7 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, user
 		return nil, err
 	}
 
-	// 检查权限：普通用户只能更新自己的模版
-	if !isAdmin && existingTemplate.UserID != userID {
-		return nil, fmt.Errorf("access denied: template belongs to another user")
-	}
+	// 所有登录用户都可以更新所有模版
 
 	// 如果名称发生变化，检查新名称在同一用户下的唯一性
 	if req.Name != existingTemplate.Name {
@@ -178,19 +189,48 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, user
 		}
 	}
 
-	// 验证YAML规范
-	if err := s.validateYamlSpec(req.YamlSpec); err != nil {
-		return nil, fmt.Errorf("invalid YAML specification: %w", err)
+	var yamlSpec string
+	var parsedSpec *models.TemplateSpec
+
+	// 检查是否提供了解析后的规格（新方式）
+	if req.ParsedSpec != nil && req.ParsedSpec.Image != "" {
+		// 使用解析后的规格重新生成YAML
+		generatedYAML, err := utils.GenerateYAMLFromTemplateSpec(req.ParsedSpec)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to generate YAML from parsed spec")
+			return nil, fmt.Errorf("failed to generate YAML from parsed spec: %w", err)
+		}
+		yamlSpec = generatedYAML
+		parsedSpec = req.ParsedSpec
+	} else if req.YamlSpec != "" {
+		// 验证YAML格式
+		if err := utils.ValidateYAML(req.YamlSpec); err != nil {
+			return nil, fmt.Errorf("invalid YAML format: %w", err)
+		}
+		yamlSpec = req.YamlSpec
+
+		// 解析YAML到结构化数据
+		parsed, err := utils.ParseYAMLToTemplateSpec(req.YamlSpec)
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to parse YAML spec, using existing parsed spec")
+			parsedSpec = &existingTemplate.ParsedSpec
+		} else {
+			parsedSpec = parsed
+		}
+	} else {
+		// 保持原有值
+		yamlSpec = existingTemplate.YamlSpec
+		parsedSpec = &existingTemplate.ParsedSpec
 	}
 
 	// 更新模版
 	query := `
-		UPDATE app_templates 
-		SET name = $1, description = $2, yaml_spec = $3, updated_at = $4
-		WHERE id = $5
+		UPDATE app_templates
+		SET name = $1, description = $2, yaml_spec = $3, parsed_spec = $4, updated_at = $5
+		WHERE id = $6
 	`
 
-	_, err = s.db.ExecContext(ctx, query, req.Name, req.Description, req.YamlSpec, time.Now(), id)
+	_, err = s.db.ExecContext(ctx, query, req.Name, req.Description, yamlSpec, parsedSpec, time.Now(), id)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to update template")
 		return nil, fmt.Errorf("failed to update template: %w", err)
@@ -202,16 +242,13 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, id uuid.UUID, user
 
 // DeleteTemplate 删除模版
 func (s *TemplateService) DeleteTemplate(ctx context.Context, id uuid.UUID, userID uuid.UUID, isAdmin bool) error {
-	// 检查模版是否存在并验证权限
-	existingTemplate, err := s.GetTemplate(ctx, id)
+	// 检查模版是否存在
+	_, err := s.GetTemplate(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// 检查权限：普通用户只能删除自己的模版
-	if !isAdmin && existingTemplate.UserID != userID {
-		return fmt.Errorf("access denied: template belongs to another user")
-	}
+	// 所有登录用户都可以删除所有模版
 
 	// 检查模版是否被URL使用
 	var urlCount int

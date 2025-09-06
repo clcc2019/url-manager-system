@@ -103,7 +103,7 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 		return
 	}
 
-	// 移除权限检查，所有用户都可以查看所有项目
+	// 所有登录用户都可以查看所有项目
 
 	project, err := h.projectService.GetProject(c.Request.Context(), id)
 	if err != nil {
@@ -242,4 +242,24 @@ func (h *ProjectHandler) DeleteProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusNoContent, nil)
+}
+
+// GetProjectStats 获取项目统计数据
+func (h *ProjectHandler) GetProjectStats(c *gin.Context) {
+	// 获取当前用户ID（仍然需要认证）
+	_, err := middleware.GetCurrentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+		return
+	}
+
+	// 获取所有项目的统计数据
+	stats, err := h.projectService.GetProjectStats(c.Request.Context())
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get project stats")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get project stats"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }

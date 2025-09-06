@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
+import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
 import URLDetail from './pages/URLDetail';
@@ -22,43 +23,15 @@ function App() {
           {/* 受保护的路由 */}
           <Route path="/" element={
             <ProtectedRoute>
-              <Layout>
-                <Navigate to="/projects" replace />
-              </Layout>
+              <Layout />
             </ProtectedRoute>
-          } />
-          
-          <Route path="/projects" element={
-            <ProtectedRoute>
-              <Layout>
-                <ProjectList />
-              </Layout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/projects/:id" element={
-            <ProtectedRoute>
-              <Layout>
-                <ProjectDetail />
-              </Layout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/urls/:id" element={
-            <ProtectedRoute>
-              <Layout>
-                <URLDetail />
-              </Layout>
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/templates" element={
-            <ProtectedRoute>
-              <Layout>
-                <TemplateList />
-              </Layout>
-            </ProtectedRoute>
-          } />
+          }>
+            <Route index element={<Dashboard />} />
+            <Route path="projects" element={<ProjectList />} />
+            <Route path="projects/:id" element={<ProjectDetail />} />
+            <Route path="templates" element={<TemplateList />} />
+            <Route path="urls/:id" element={<URLDetail />} />
+          </Route>
           
           {/* 未匹配的路由重定向到首页 */}
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -16,6 +16,9 @@ import type {
   ListTemplatesResponse,
   TemplateVariablesResponse,
   TemplatePreviewResponse,
+  ContainerStatus,
+  PodEvent,
+  ContainerLog,
   User,
   LoginRequest,
   LoginResponse,
@@ -129,6 +132,16 @@ export class ApiService {
     await apiClient.delete(`/projects/${id}`);
   }
 
+  static async getProjectStats(): Promise<{
+    totalProjects: number;
+    activeUrls: number;
+    recentActivity: number;
+    successRate: number;
+  }> {
+    const response = await apiClient.get('/projects/stats');
+    return response.data;
+  }
+
   // URL管理 API
   static async getProjectURLs(
     projectId: string,
@@ -182,6 +195,25 @@ export class ApiService {
 
   static async deployURL(id: string): Promise<void> {
     await apiClient.post(`/urls/${id}/deploy`);
+  }
+
+  static async getURLContainerStatus(id: string): Promise<ContainerStatus[]> {
+    const response = await apiClient.get(`/urls/${id}/containers/status`);
+    return response.data;
+  }
+
+  static async getURLPodEvents(id: string): Promise<PodEvent[]> {
+    const response = await apiClient.get(`/urls/${id}/events`);
+    return response.data;
+  }
+
+  static async getURLContainerLogs(id: string, containerName?: string, lines?: number): Promise<ContainerLog[]> {
+    const params = new URLSearchParams();
+    if (containerName) params.append('container', containerName);
+    if (lines) params.append('lines', lines.toString());
+    
+    const response = await apiClient.get(`/urls/${id}/logs?${params.toString()}`);
+    return response.data;
   }
 
   // 健康检查

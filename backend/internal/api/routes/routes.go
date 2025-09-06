@@ -67,6 +67,9 @@ func setupProjectRoutes(api *gin.RouterGroup, serviceContainer *services.Contain
 		projects.POST("/:id/urls", urlHandler.CreateEphemeralURL)
 		projects.POST("/:id/urls/from-template", urlHandler.CreateEphemeralURLFromTemplate)
 		projects.GET("/:id/urls", urlHandler.ListEphemeralURLs)
+
+		// 项目统计
+		projects.GET("/stats", projectHandler.GetProjectStats)
 	}
 }
 
@@ -81,6 +84,12 @@ func setupURLRoutes(api *gin.RouterGroup, serviceContainer *services.Container) 
 		urls.DELETE("/:id", urlHandler.DeleteEphemeralURL)
 		urls.POST("/:id/deploy", urlHandler.DeployURL)
 		urls.POST("/validate-cleanup", urlHandler.ValidateAndCleanupData)
+
+		// 容器状态、事件和日志相关API
+		urls.GET("/:id/containers/status", urlHandler.GetURLContainerStatus)
+		urls.GET("/:id/events", urlHandler.GetURLPodEvents)
+		urls.GET("/:id/logs", urlHandler.GetURLContainerLogs)
+
 		// urls.GET("/path/:path", urlHandler.GetURLByPath) // 可选：根据路径查询
 	}
 }
@@ -122,12 +131,8 @@ func setupUserRoutes(api *gin.RouterGroup, serviceContainer *services.Container)
 		users.GET("/profile", authHandler.GetProfile)
 		users.PUT("/password", authHandler.ChangePassword)
 
-		// 管理员功能
-		admin := users.Group("")
-		admin.Use(middleware.AdminMiddleware())
-		{
-			admin.POST("/register", authHandler.Register)
-			admin.GET("", authHandler.ListUsers)
-		}
+		// 管理员功能（所有登录用户都可以访问）
+		users.POST("/register", authHandler.Register)
+		users.GET("", authHandler.ListUsers)
 	}
 }

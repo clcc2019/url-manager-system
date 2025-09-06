@@ -25,7 +25,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // 立即设置本地状态，不等待API验证
         setToken(savedToken);
         setUser(savedUser);
-        
+
         // 异步验证token是否仍然有效，但不阻塞UI渲染
         try {
           const currentUser = await ApiService.getProfile();
@@ -44,11 +44,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // 其他网络错误不清除状态，保持本地状态
         }
       }
-      
+
+      // 无论如何都要设置加载完成状态，确保UI能正常渲染
       setIsLoading(false);
     };
 
+    // 添加超时机制，确保即使网络问题也能正常渲染
+    const timeoutId = setTimeout(() => {
+      if (isLoading) {
+        console.warn('Authentication initialization timeout, proceeding with current state');
+        setIsLoading(false);
+      }
+    }, 3000); // 3秒超时
+
     initAuth();
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // 监听401错误，自动登出

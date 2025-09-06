@@ -33,17 +33,9 @@ spec:
               containerPort: {{ .Values.frontend.service.targetPort }}
               protocol: TCP
           livenessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 15
+            {{- toYaml .Values.frontend.livenessProbe | nindent 12 }}
           readinessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 15
+            {{- toYaml .Values.frontend.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
           volumeMounts:

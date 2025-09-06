@@ -4,6 +4,7 @@ import type { Project, EphemeralURL, CreateURLRequest, CreateURLFromTemplateRequ
 import { ApiService } from '../services/api';
 import { formatDate, getTimeUntilExpiry } from '../utils/date';
 import { useToast } from '@/hooks/use-toast';
+import { useEditor } from '@/hooks/useEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Popconfirm } from '@/components/ui/popconfirm';
 import { Spinner } from '@/components/ui/spinner';
+import UnifiedEditor from '@/components/UnifiedEditor';
 import { Separator } from '@/components/ui/separator';
 import { 
   Plus, 
@@ -48,8 +50,23 @@ import {
   Copy,
   Eye,
   Settings,
-  Activity
+  Activity,
+  ArrowLeft,
+  MoreHorizontal,
+  ExternalLink,
+  Globe,
+  Calendar,
+  FileText,
+  AlertCircle,
+  CheckCircle,
+  Info
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -68,6 +85,7 @@ const ProjectDetail: React.FC = () => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [formData, setFormData] = useState<any>({});
   const [formErrors, setFormErrors] = useState<any>({});
+  const urlEditor = useEditor<EphemeralURL>();
 
   const fetchProject = useCallback(async () => {
     if (!id) return;
@@ -204,47 +222,49 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  const handleEditURL = (url: EphemeralURL) => {
-    setEditingURL(url);
-    setFormData({
-      image: url.image,
-      replicas: url.replicas,
-      ttl_seconds: url.ttl_seconds,
-      ingress_host: url.ingress_host || '',
-    });
-    setEditModalVisible(true);
+  const handleEditURL = async (url: EphemeralURL) => {
+    try {
+      // 获取完整URL详情，包含 container_config 等字段
+      const full = await ApiService.getURL(url.id);
+      setEditingURL(full);
+      urlEditor.startEditing(full);
+      setEditModalVisible(true);
+    } catch (error) {
+      const errorMsg = (error as any)?.response?.data?.error || '获取URL详情失败，无法编辑';
+      toast({
+        title: '获取失败',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleUpdateURL = async () => {
-    if (!editingURL) return;
+    if (!editingURL || !urlEditor.editedData) return;
 
     try {
-      const updateData: any = {};
-
-      // 只包含有变化的字段
-      if (formData.image !== editingURL.image) {
-        updateData.image = formData.image;
-      }
-      if (formData.replicas !== editingURL.replicas) {
-        updateData.replicas = formData.replicas;
-      }
-      if (formData.ttl_seconds !== editingURL.ttl_seconds) {
-        updateData.ttl_seconds = formData.ttl_seconds;
-      }
-      if (formData.ingress_host !== editingURL.ingress_host) {
-        updateData.ingress_host = formData.ingress_host || null;
-      }
+      const updateData = {
+        image: urlEditor.editedData.image,
+        env: urlEditor.editedData.env,
+        ttl_seconds: urlEditor.editedData.ttl_seconds,
+        replicas: urlEditor.editedData.replicas,
+        resources: urlEditor.editedData.resources,
+        container_config: urlEditor.editedData.container_config,
+        ingress_host: urlEditor.editedData.ingress_host
+      };
 
       await ApiService.updateURL(editingURL.id, updateData);
+      // 更新后立即重新部署，避免等待失败
+      await ApiService.deployURL(editingURL.id);
 
       toast({
         title: '更新成功',
-        description: 'URL已成功更新',
+        description: 'URL配置已更新并重新部署',
       });
 
       setEditModalVisible(false);
       setEditingURL(null);
-      setFormData({});
+      urlEditor.cancelEditing();
 
       // 刷新URL列表
       fetchURLs();
@@ -313,31 +333,63 @@ const ProjectDetail: React.FC = () => {
     );
   }
 
+  const statusConfig = {
+    draft: { variant: 'secondary' as const, text: '草稿', icon: FileText },
+    creating: { variant: 'default' as const, text: '创建中', icon: RefreshCw },
+    waiting: { variant: 'outline' as const, text: '等待中', icon: Clock },
+    active: { variant: 'default' as const, text: '运行中', icon: CheckCircle },
+    deleting: { variant: 'destructive' as const, text: '删除中', icon: Trash2 },
+    deleted: { variant: 'secondary' as const, text: '已删除', icon: AlertCircle },
+    failed: { variant: 'destructive' as const, text: '失败', icon: AlertCircle },
+  };
+
   return (
     <div className="space-y-6">
-      {/* 页面头部 */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
-          <p className="text-muted-foreground">
+      {/* Breadcrumb */}
+      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/projects')}
+          className="h-auto p-0 text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="mr-1 h-3 w-3" />
+          <span className="hidden sm:inline">项目列表</span>
+          <span className="sm:hidden">返回</span>
+        </Button>
+        <span>/</span>
+        <span className="hidden sm:inline">项目详情</span>
+        <span className="sm:hidden">详情</span>
+      </div>
+
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2 flex-1 min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl truncate">{project.name}</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
             {project.description || '暂无描述'}
           </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground sm:text-sm">
+            <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+            <span>创建于 {formatDate(project.created_at)}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button
             variant="outline"
+            size="sm"
             onClick={() => {
               fetchProject();
               fetchURLs();
             }}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-full sm:w-auto"
           >
             <RefreshCw className="h-4 w-4" />
             刷新
           </Button>
           <Dialog open={createModalVisible} onOpenChange={setCreateModalVisible}>
             <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
+              <Button size="sm" className="flex items-center gap-2 w-full sm:w-auto">
                 <Plus className="h-4 w-4" />
                 创建URL
               </Button>
@@ -524,7 +576,7 @@ const ProjectDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* 编辑URL对话框 */}
+      {/* Edit URL Modal */}
       <Dialog open={editModalVisible} onOpenChange={setEditModalVisible}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -533,92 +585,15 @@ const ProjectDetail: React.FC = () => {
               修改URL的配置信息
             </DialogDescription>
           </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const errors: any = {};
-
-              if (!formData.image) {
-                errors.image = '请输入容器镜像';
-              }
-
-              if (!formData.ttl_seconds) {
-                errors.ttl_seconds = '请选择过期时间';
-              }
-
-              if (Object.keys(errors).length > 0) {
-                setFormErrors(errors);
-                return;
-              }
-
-              handleUpdateURL();
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label>容器镜像 *</Label>
-              <Input
-                value={formData.image || ''}
-                onChange={(e) => {
-                  setFormData(prev => ({ ...prev, image: e.target.value }));
-                  if (formErrors.image) setFormErrors(prev => ({ ...prev, image: undefined }));
-                }}
-                placeholder="例如: nginx:latest"
-                className={formErrors.image ? 'border-destructive' : ''}
+          <div className="space-y-4">
+            {urlEditor.editedData && (
+              <UnifiedEditor
+                type="url"
+                data={urlEditor.editedData}
+                onUpdate={urlEditor.updateData}
               />
-              {formErrors.image && (
-                <p className="text-sm text-destructive">{formErrors.image}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>副本数</Label>
-              <Input
-                type="number"
-                min="1"
-                max="10"
-                value={formData.replicas || 1}
-                onChange={(e) => setFormData(prev => ({ ...prev, replicas: parseInt(e.target.value) || 1 }))}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>过期时间 *</Label>
-              <Select
-                value={formData.ttl_seconds?.toString() || ''}
-                onValueChange={(value) => {
-                  setFormData(prev => ({ ...prev, ttl_seconds: parseInt(value) }));
-                  if (formErrors.ttl_seconds) setFormErrors(prev => ({ ...prev, ttl_seconds: undefined }));
-                }}
-              >
-                <SelectTrigger className={formErrors.ttl_seconds ? 'border-destructive' : ''}>
-                  <SelectValue placeholder="选择过期时间" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ttlOptions.map(option => (
-                    <SelectItem key={option.value} value={option.value.toString()}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formErrors.ttl_seconds && (
-                <p className="text-sm text-destructive">{formErrors.ttl_seconds}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Ingress Host</Label>
-              <Input
-                value={formData.ingress_host || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, ingress_host: e.target.value }))}
-                placeholder="例如: myapp.example.com（可选）"
-              />
-              <p className="text-sm text-muted-foreground">
-                留空将使用系统默认的ingress host
-              </p>
-            </div>
-
+            )}
+            
             <DialogFooter>
               <Button
                 type="button"
@@ -626,22 +601,21 @@ const ProjectDetail: React.FC = () => {
                 onClick={() => {
                   setEditModalVisible(false);
                   setEditingURL(null);
-                  setFormData({});
-                  setFormErrors({});
+                  urlEditor.cancelEditing();
                 }}
               >
                 取消
               </Button>
-              <Button type="submit">
+              <Button onClick={handleUpdateURL}>
                 更新URL
               </Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* 统计卡片 */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Stats Cards */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">总URL数</CardTitle>
@@ -692,7 +666,7 @@ const ProjectDetail: React.FC = () => {
         </Card>
       </div>
 
-      {/* URL列表 */}
+      {/* URL List */}
       <Card>
         <CardHeader>
           <CardTitle>URL 列表</CardTitle>
@@ -712,37 +686,33 @@ const ProjectDetail: React.FC = () => {
               <p className="text-sm">点击上方"创建URL"按钮开始创建您的第一个临时URL</p>
             </div>
           ) : (
-            <div className="overflow-hidden">
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>URL路径</TableHead>
-                    <TableHead className="hidden md:table-cell">镜像/模板</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="hidden lg:table-cell">副本数</TableHead>
-                    <TableHead className="hidden lg:table-cell">过期时间</TableHead>
-                    <TableHead className="hidden lg:table-cell">创建时间</TableHead>
-                    <TableHead>操作</TableHead>
+                    <TableHead className="min-w-[120px]">URL路径</TableHead>
+                    <TableHead className="hidden md:table-cell min-w-[150px]">镜像/模板</TableHead>
+                    <TableHead className="min-w-[80px]">状态</TableHead>
+                    <TableHead className="hidden lg:table-cell min-w-[80px]">副本数</TableHead>
+                    <TableHead className="hidden xl:table-cell min-w-[120px]">过期时间</TableHead>
+                    <TableHead className="hidden xl:table-cell min-w-[120px]">创建时间</TableHead>
+                    <TableHead className="min-w-[100px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {urls.map((url) => {
-                    const statusConfig = {
-                      draft: { variant: 'secondary' as const, text: '草稿' },
-                      creating: { variant: 'default' as const, text: '创建中' },
-                      waiting: { variant: 'outline' as const, text: '等待中' },
-                      active: { variant: 'default' as const, text: '运行中' },
-                      deleting: { variant: 'destructive' as const, text: '删除中' },
-                      deleted: { variant: 'secondary' as const, text: '已删除' },
-                      failed: { variant: 'destructive' as const, text: '失败' },
+                    const config = statusConfig[url.status as keyof typeof statusConfig] || { 
+                      variant: 'secondary' as const, 
+                      text: url.status,
+                      icon: Info
                     };
-                    const config = statusConfig[url.status as keyof typeof statusConfig] || { variant: 'secondary' as const, text: url.status };
+                    const StatusIcon = config.icon;
                     
                     return (
                       <TableRow key={url.id}>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono break-all sm:text-sm">
                               {url.path}
                             </code>
                             {url.status === 'active' && (
@@ -751,13 +721,15 @@ const ProjectDetail: React.FC = () => {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => window.open(`https://example.com${url.path}`, '_blank')}
+                                  className="h-6 w-6 p-0 sm:h-8 sm:w-8"
                                 >
-                                  <Eye className="h-3 w-3" />
+                                  <ExternalLink className="h-3 w-3" />
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => copyToClipboard(`https://example.com${url.path}`)}
+                                  className="h-6 w-6 p-0 sm:h-8 sm:w-8"
                                 >
                                   <Copy className="h-3 w-3" />
                                 </Button>
@@ -776,76 +748,73 @@ const ProjectDetail: React.FC = () => {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={config.variant}>{config.text}</Badge>
+                          <Badge variant={config.variant} className="flex items-center gap-1 w-fit">
+                            <StatusIcon className="h-3 w-3" />
+                            {config.text}
+                          </Badge>
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell">{url.replicas}</TableCell>
-                        <TableCell className="hidden lg:table-cell">
-                          <div className="text-sm space-y-1">
-                            <div>{formatDate(url.expire_at)}</div>
+                        <TableCell className="hidden lg:table-cell text-center">{url.replicas}</TableCell>
+                        <TableCell className="hidden xl:table-cell">
+                          <div className="text-xs space-y-1 sm:text-sm">
+                            <div className="truncate">{formatDate(url.expire_at)}</div>
                             <div className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Clock className="h-3 w-3" /> {getTimeUntilExpiry(url.expire_at)}
+                              <Clock className="h-3 w-3" /> 
+                              <span className="truncate">{getTimeUntilExpiry(url.expire_at)}</span>
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell">
-                          <span className="text-sm text-muted-foreground">
+                        <TableCell className="hidden xl:table-cell">
+                          <span className="text-xs text-muted-foreground sm:text-sm">
                             {formatDate(url.created_at)}
                           </span>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 sm:gap-2">
                             {(url.status === 'draft' || url.status === 'failed') && (
                               <Button
                                 size="sm"
                                 onClick={() => handleDeployURL(url.id)}
-                                className="flex items-center gap-1"
+                                className="flex items-center gap-1 px-2 sm:px-3"
                               >
                                 <Rocket className="h-3 w-3" />
-                                <span className="hidden sm:inline">
+                                <span className="hidden sm:inline text-xs">
                                   {url.status === 'failed' ? '重新部署' : '部署'}
                                 </span>
                               </Button>
                             )}
-                            {/* 详情按钮 */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => navigate(`/urls/${url.id}`)}
-                              className="flex items-center gap-1"
-                            >
-                              <Eye className="h-3 w-3" />
-                              <span className="hidden sm:inline">详情</span>
-                            </Button>
-
-                            {/* 编辑按钮 */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditURL(url)}
-                              className="flex items-center gap-1"
-                            >
-                              <Settings className="h-3 w-3" />
-                              <span className="hidden sm:inline">编辑</span>
-                            </Button>
-
-                            {url.status !== 'deleted' && (
-                              <Popconfirm
-                                title="确定要删除这个URL吗？"
-                                description="删除后将无法访问"
-                                onConfirm={() => handleDeleteURL(url.id)}
-                                okText="确定"
-                                cancelText="取消"
-                              >
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  className="flex items-center gap-1"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                  <span className="hidden sm:inline">删除</span>
+                            
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">更多操作</span>
                                 </Button>
-                              </Popconfirm>
-                            )}
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => navigate(`/urls/${url.id}`)}>
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  查看详情
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleEditURL(url)}>
+                                  <Settings className="mr-2 h-4 w-4" />
+                                  编辑配置
+                                </DropdownMenuItem>
+                                {url.status !== 'deleted' && (
+                                  <Popconfirm
+                                    title="确定要删除这个URL吗？"
+                                    description="删除后将无法访问"
+                                    onConfirm={() => handleDeleteURL(url.id)}
+                                    okText="确定"
+                                    cancelText="取消"
+                                  >
+                                    <DropdownMenuItem className="text-destructive focus:text-destructive">
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      删除URL
+                                    </DropdownMenuItem>
+                                  </Popconfirm>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>

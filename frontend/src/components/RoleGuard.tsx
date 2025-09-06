@@ -8,11 +8,11 @@ interface RoleGuardProps {
   fallback?: React.ReactNode;
 }
 
-export default function RoleGuard({ 
-  children, 
-  allowedRoles, 
-  requireAdmin = false, 
-  fallback = null 
+export default function RoleGuard({
+  children,
+  allowedRoles,
+  requireAdmin = false,
+  fallback = null
 }: RoleGuardProps) {
   const { user } = useAuth();
 
@@ -20,16 +20,7 @@ export default function RoleGuard({
     return <>{fallback}</>;
   }
 
-  // 如果需要管理员权限但用户不是管理员
-  if (requireAdmin && user.role !== 'admin') {
-    return <>{fallback}</>;
-  }
-
-  // 如果指定了允许的角色列表
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <>{fallback}</>;
-  }
-
+  // 所有登录用户都有所有权限，不再检查角色限制
   return <>{children}</>;
 }
 

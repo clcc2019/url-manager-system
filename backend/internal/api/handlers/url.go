@@ -260,3 +260,89 @@ func (h *URLHandler) UpdateEphemeralURL(c *gin.Context) {
 
 	c.JSON(http.StatusOK, url)
 }
+
+// GetURLContainerStatus 获取URL容器状态
+func (h *URLHandler) GetURLContainerStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL ID"})
+		return
+	}
+
+	statuses, err := h.urlService.GetURLContainerStatus(c.Request.Context(), id)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get container status")
+
+		switch {
+		case err.Error() == "URL not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get container status"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, statuses)
+}
+
+// GetURLPodEvents 获取URL Pod事件
+func (h *URLHandler) GetURLPodEvents(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL ID"})
+		return
+	}
+
+	events, err := h.urlService.GetURLPodEvents(c.Request.Context(), id)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get pod events")
+
+		switch {
+		case err.Error() == "URL not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get pod events"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, events)
+}
+
+// GetURLContainerLogs 获取URL容器日志
+func (h *URLHandler) GetURLContainerLogs(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL ID"})
+		return
+	}
+
+	// 获取查询参数
+	containerName := c.Query("container")
+	linesStr := c.Query("lines")
+
+	var lines int = 100 // 默认100行
+	if linesStr != "" {
+		if parsedLines, err := strconv.Atoi(linesStr); err == nil && parsedLines > 0 {
+			lines = parsedLines
+		}
+	}
+
+	logs, err := h.urlService.GetURLContainerLogs(c.Request.Context(), id, containerName, lines)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get container logs")
+
+		switch {
+		case err.Error() == "URL not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get container logs"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, logs)
+}

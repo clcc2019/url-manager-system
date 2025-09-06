@@ -1,24 +1,14 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { AppTemplate, CreateTemplateRequest, UpdateTemplateRequest } from '../types/api.js';
 import { ApiService } from '../services/api';
 import { formatDate } from '../utils/date';
-import { useAuth } from '../contexts/AuthContext';
-import { useRoleCheck } from '../components/RoleGuard';
 import { useToast } from '@/hooks/use-toast';
-import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useEditor } from '@/hooks/useEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -30,77 +20,124 @@ import {
 } from '@/components/ui/dialog';
 import { Popconfirm } from '@/components/ui/popconfirm';
 import { Spinner } from '@/components/ui/spinner';
-import { Separator } from '@/components/ui/separator';
-import {
-  Plus,
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import UnifiedEditor from '@/components/UnifiedEditor';
+import { 
+  Plus, 
+  FileText, 
+  Trash2, 
+  RefreshCw,
+  Calendar,
   Edit,
-  Trash2,
+  Save,
+  X,
+  MoreHorizontal,
   Eye,
-  User,
-  Loader2
+  Settings,
+  Copy,
+  Code,
+  Layers,
+  Server,
+  Activity,
+  Clock
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
-interface TemplateListProps {
-  inProject?: boolean;
-  onSelect?: (template: AppTemplate) => void;
-}
+type EditMode = 'structured' | 'yaml';
 
-const TemplateList: React.FC<TemplateListProps> = ({ inProject = false, onSelect }) => {
+const TemplateList: React.FC = () => {
+  const { toast } = useToast();
+  
   const [templates, setTemplates] = useState<AppTemplate[]>([]);
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(10);
-  const { user, isLoading: authLoading } = useAuth();
-  const { isAdmin } = useRoleCheck();
-  const { toast } = useToast();
-  const { isMobile } = useBreakpoint();
-
-  // Modal states
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(false);
+  const [editMode, setEditMode] = useState<EditMode>('structured');
   const [currentTemplate, setCurrentTemplate] = useState<AppTemplate | null>(null);
-  const [formData, setFormData] = useState({ name: '', description: '', yaml_spec: '' });
-  const [formErrors, setFormErrors] = useState<{ name?: string; yaml_spec?: string }>({});
+  const [yamlContent, setYamlContent] = useState('');
+  const [formData, setFormData] = useState<CreateTemplateRequest>({
+    name: '',
+    description: '',
+    yaml_spec: '',
+    parsed_spec: {
+      image: '',
+      env: [],
+      replicas: 1,
+      resources: {
+        requests: { cpu: '100m', memory: '128Mi' },
+        limits: { cpu: '500m', memory: '512Mi' }
+      }
+    }
+  });
+  const [formErrors, setFormErrors] = useState<any>({});
+  const editor = useEditor<AppTemplate>();
 
-  const loadTemplates = useCallback(async (page = 1) => {
+  const fetchTemplates = async () => {
     setLoading(true);
     try {
-      const response = await ApiService.getTemplates({
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-      });
+      const response = await ApiService.getTemplates();
       setTemplates(response.templates);
-      setTotal(response.total);
-      setCurrentPage(page);
-    } catch {
+    } catch (error) {
       toast({
         title: '获取失败',
-        description: '获取模版列表失败',
+        description: '获取模板列表失败',
         variant: 'destructive',
       });
     } finally {
       setLoading(false);
     }
-  }, [pageSize]);
+  };
 
   useEffect(() => {
-    loadTemplates();
-  }, [loadTemplates]);
+    fetchTemplates();
+  }, []);
 
-  const handleCreate = async (values: CreateTemplateRequest) => {
+  const handleCreateTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const errors: any = {};
+    if (!formData.name.trim()) {
+      errors.name = '模板名称不能为空';
+    }
+    if (!formData.yaml_spec.trim()) {
+      errors.yaml_spec = 'YAML规范不能为空';
+    }
+    
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
     try {
-      await ApiService.createTemplate(values);
+      await ApiService.createTemplate(formData);
       toast({
         title: '创建成功',
-        description: '模版已成功创建',
+        description: '模板已成功创建',
       });
       setCreateModalVisible(false);
-      setFormData({ name: '', description: '', yaml_spec: '' });
-      loadTemplates(currentPage);
+      setFormData({
+        name: '',
+        description: '',
+        yaml_spec: '',
+        parsed_spec: {
+          image: '',
+          env: [],
+          replicas: 1,
+          resources: {
+            requests: { cpu: '100m', memory: '128Mi' },
+            limits: { cpu: '500m', memory: '512Mi' }
+          }
+        }
+      });
+      setFormErrors({});
+      fetchTemplates();
     } catch (error) {
-      const errorMsg = (error as any)?.response?.data?.error || '模版创建失败';
+      const errorMsg = (error as any)?.response?.data?.error || '模板创建失败';
       toast({
         title: '创建失败',
         description: errorMsg,
@@ -109,31 +146,42 @@ const TemplateList: React.FC<TemplateListProps> = ({ inProject = false, onSelect
     }
   };
 
-  const handleEdit = (template: AppTemplate) => {
+  const handleEditTemplate = (template: AppTemplate) => {
     setCurrentTemplate(template);
-    setFormData({
-      name: template.name,
-      description: template.description || '',
-      yaml_spec: template.yaml_spec
-    });
+    editor.startEditing(template, template.yaml_spec);
+    setYamlContent(template.yaml_spec);
     setEditModalVisible(true);
   };
 
-  const handleUpdate = async (values: UpdateTemplateRequest) => {
-    if (!currentTemplate) return;
+  const handleUpdateTemplate = async () => {
+    if (!currentTemplate || !editor.editedData) return;
 
     try {
-      await ApiService.updateTemplate(currentTemplate.id, values);
+      const updateData: UpdateTemplateRequest = {
+        name: editor.editedData.name,
+        description: editor.editedData.description,
+      };
+
+      if (editMode === 'structured' && editor.editedData) {
+        updateData.parsed_spec = editor.editedData.parsed_spec;
+      } else {
+        updateData.yaml_spec = yamlContent;
+      }
+
+      await ApiService.updateTemplate(currentTemplate.id, updateData);
+
       toast({
         title: '更新成功',
-        description: '模版已成功更新',
+        description: '模板已成功更新',
       });
+
       setEditModalVisible(false);
-      setFormData({ name: '', description: '', yaml_spec: '' });
       setCurrentTemplate(null);
-      loadTemplates(currentPage);
+      editor.cancelEditing();
+      setYamlContent('');
+      fetchTemplates();
     } catch (error) {
-      const errorMsg = (error as any)?.response?.data?.error || '模版更新失败';
+      const errorMsg = (error as any)?.response?.data?.error || '模板更新失败';
       toast({
         title: '更新失败',
         description: errorMsg,
@@ -142,16 +190,16 @@ const TemplateList: React.FC<TemplateListProps> = ({ inProject = false, onSelect
     }
   };
 
-  const handleDelete = async (templateId: string) => {
+  const handleDeleteTemplate = async (templateId: string) => {
     try {
       await ApiService.deleteTemplate(templateId);
       toast({
         title: '删除成功',
-        description: '模版已成功删除',
+        description: '模板已成功删除',
       });
-      loadTemplates(currentPage);
+      fetchTemplates();
     } catch (error) {
-      const errorMsg = (error as any)?.response?.data?.error || '模版删除失败';
+      const errorMsg = (error as any)?.response?.data?.error || '模板删除失败';
       toast({
         title: '删除失败',
         description: errorMsg,
@@ -160,552 +208,374 @@ const TemplateList: React.FC<TemplateListProps> = ({ inProject = false, onSelect
     }
   };
 
-  const handlePreview = (template: AppTemplate) => {
-    setCurrentTemplate(template);
-    setPreviewVisible(true);
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: '复制成功',
+      description: 'YAML内容已复制到剪贴板',
+    });
   };
 
-  const handleSelect = (template: AppTemplate) => {
-    if (onSelect) {
-      onSelect(template);
-    }
-  };
-
-  const columns = useMemo(() => [
-    {
-      title: '模版名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text: string, record: AppTemplate) => (
-        <div className="space-y-1">
-          <span className="font-medium">{text}</span>
-          {record.description && (
-            <p className="text-sm text-muted-foreground">({record.description})</p>
-          )}
-        </div>
-      ),
-    },
-    // 所有者列（所有用户都可以看到）
-    {
-      title: '所有者',
-      dataIndex: 'user_id',
-      key: 'owner',
-      render: (userId: string, record: AppTemplate) => {
-        const isOwner = userId && userId === user?.id;
-        return (
-          <Badge 
-            variant={isOwner ? 'default' : 'secondary'}
-            className="inline-flex items-center gap-1"
-          >
-            <User className="h-3 w-3" />
-            {isOwner ? '你' : userId ? `用户${userId.slice(-8)}` : '未知用户'}
-          </Badge>
-        );
-      },
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (text: string) => (
-        <span className="text-sm text-muted-foreground">
-          {formatDate(text)}
-        </span>
-      ),
-    },
-    {
-      title: '更新时间',
-      dataIndex: 'updated_at',
-      key: 'updated_at',
-      render: (text: string) => (
-        <span className="text-sm text-muted-foreground">
-          {formatDate(text)}
-        </span>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_: any, record: AppTemplate) => {
-        // 所有用户都有所有权限
-        
-        return (
-          <div className="flex items-center gap-2">
-            {inProject ? (
-              <Button
-                size="sm"
-                onClick={() => handleSelect(record)}
-              >
-                选择
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePreview(record)}
-                  className="inline-flex items-center gap-1"
-                >
-                  <Eye className="h-4 w-4" />
-                  预览
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleEdit(record)}
-                  className="inline-flex items-center gap-1"
-                >
-                  <Edit className="h-4 w-4" />
-                  编辑
-                </Button>
-                <Popconfirm
-                  title="确定要删除这个模版吗？"
-                  description="删除后将无法恢复"
-                  onConfirm={() => handleDelete(record.id)}
-                  okText="确定"
-                  cancelText="取消"
-                >
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="inline-flex items-center gap-1"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    删除
-                  </Button>
-                </Popconfirm>
-              </>
-            )}
-          </div>
-        );
-      },
-    },
-  ], [user, inProject, onSelect, handlePreview, handleEdit, handleDelete]);
-
-  // 如果认证状态还在加载中且不是在项目内使用，显示加载指示器
-  if (authLoading && !inProject) {
+  if (loading && templates.length === 0) {
     return (
-      <div className="flex justify-center items-center min-h-96">
-        <Spinner size="lg" tip="加载用户信息..." />
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <Spinner size="lg" />
+        <div className="text-center">
+          <p className="text-lg font-medium">正在加载模板...</p>
+          <p className="text-sm text-muted-foreground">请稍候</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {!inProject && (
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold`}>模版管理</h2>
-            <p className="text-muted-foreground mt-1">
-              您可以查看和管理所有用户的模版
-            </p>
-          </div>
-          <Button
-            onClick={() => setCreateModalVisible(true)}
-            className="inline-flex items-center gap-2"
-            size={isMobile ? 'sm' : 'default'}
-          >
-            <Plus className="h-4 w-4" />
-            {isMobile ? '创建' : '创建模版'}
-          </Button>
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight">模板管理</h1>
+          <p className="text-muted-foreground">
+            管理您的应用模板，快速创建标准化的部署配置
+          </p>
         </div>
-      )}
-      
-      {inProject && (
-        <div className="mb-4">
+        <div className="flex items-center gap-2">
           <Button
-            onClick={() => setCreateModalVisible(true)}
-            className="inline-flex items-center gap-2"
-            size={isMobile ? 'sm' : 'default'}
+            variant="outline"
+            onClick={fetchTemplates}
+            disabled={loading}
+            className="flex items-center gap-2"
           >
-            <Plus className="h-4 w-4" />
-            {isMobile ? '创建' : '创建模版'}
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            刷新
           </Button>
+          <Dialog open={createModalVisible} onOpenChange={setCreateModalVisible}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                创建模板
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>创建新模板</DialogTitle>
+                <DialogDescription>
+                  创建一个新的应用模板，可以用于快速部署标准化的应用
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateTemplate} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">模板名称 *</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, name: e.target.value }));
+                      if (formErrors.name) setFormErrors(prev => ({ ...prev, name: undefined }));
+                    }}
+                    placeholder="输入模板名称"
+                    className={formErrors.name ? 'border-destructive' : ''}
+                  />
+                  {formErrors.name && (
+                    <p className="text-sm text-destructive">{formErrors.name}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">模板描述</Label>
+                  <Input
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="输入模板描述（可选）"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="yaml_spec">YAML规范 *</Label>
+                  <textarea
+                    id="yaml_spec"
+                    value={formData.yaml_spec}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, yaml_spec: e.target.value }));
+                      if (formErrors.yaml_spec) setFormErrors(prev => ({ ...prev, yaml_spec: undefined }));
+                    }}
+                    placeholder="输入Kubernetes YAML配置"
+                    className={`min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono ${formErrors.yaml_spec ? 'border-destructive' : ''}`}
+                  />
+                  {formErrors.yaml_spec && (
+                    <p className="text-sm text-destructive">{formErrors.yaml_spec}</p>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setCreateModalVisible(false);
+                      setFormData({
+                        name: '',
+                        description: '',
+                        yaml_spec: '',
+                        parsed_spec: {
+                          image: '',
+                          env: [],
+                          replicas: 1,
+                          resources: {
+                            requests: { cpu: '100m', memory: '128Mi' },
+                            limits: { cpu: '500m', memory: '512Mi' }
+                          }
+                        }
+                      });
+                      setFormErrors({});
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button type="submit">
+                    创建模板
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
-      )}
-
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>模版名称</TableHead>
-              <TableHead>所有者</TableHead>
-              {!isMobile && <TableHead>创建时间</TableHead>}
-              {!isMobile && <TableHead>更新时间</TableHead>}
-              <TableHead>操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={isMobile ? 3 : 5} className="text-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                  <p className="mt-2 text-muted-foreground">加载中...</p>
-                </TableCell>
-              </TableRow>
-            ) : templates.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={isMobile ? 3 : 5} className="text-center py-8 text-muted-foreground">
-                  暂无模版数据
-                </TableCell>
-              </TableRow>
-            ) : (
-              templates.map((template) => (
-                <TableRow key={template.id}>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <span className="font-medium">{template.name}</span>
-                      {template.description && (
-                        <p className="text-sm text-muted-foreground">({template.description})</p>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge 
-                      variant={template.user_id === user?.id ? 'default' : 'secondary'}
-                      className="inline-flex items-center gap-1"
-                    >
-                      <User className="h-3 w-3" />
-                      {template.user_id === user?.id ? '你' : template.user_id ? `用户${template.user_id.slice(-8)}` : '未知用户'}
-                    </Badge>
-                  </TableCell>
-                  {!isMobile && (
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {formatDate(template.created_at)}
-                      </span>
-                    </TableCell>
-                  )}
-                  {!isMobile && (
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {formatDate(template.updated_at)}
-                      </span>
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
-                      {inProject ? (
-                        <Button
-                          size="sm"
-                          onClick={() => handleSelect(template)}
-                        >
-                          选择
-                        </Button>
-                      ) : (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handlePreview(template)}
-                            className="inline-flex items-center gap-1"
-                          >
-                            <Eye className="h-4 w-4" />
-                            {isMobile ? '' : '预览'}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEdit(template)}
-                            className="inline-flex items-center gap-1"
-                          >
-                            <Edit className="h-4 w-4" />
-                            {isMobile ? '' : '编辑'}
-                          </Button>
-                          <Popconfirm
-                            title="确定要删除这个模版吗？"
-                            description="删除后将无法恢复"
-                            onConfirm={() => handleDelete(template.id)}
-                            okText="确定"
-                            cancelText="取消"
-                          >
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              className="inline-flex items-center gap-1"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              {isMobile ? '' : '删除'}
-                            </Button>
-                          </Popconfirm>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
       </div>
 
-      {/* 分页 */}
-      {total > pageSize && (
-        <div className="flex justify-center">
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadTemplates(currentPage - 1)}
-              disabled={currentPage === 1}
-            >
-              上一页
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              第 {currentPage} 页，共 {Math.ceil(total / pageSize)} 页
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadTemplates(currentPage + 1)}
-              disabled={currentPage >= Math.ceil(total / pageSize)}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* 创建模版对话框 */}
-      <Dialog open={createModalVisible} onOpenChange={setCreateModalVisible}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>创建应用模版</DialogTitle>
-            <DialogDescription>
-              创建一个新的应用模版，支持使用 ${'${PLACEHOLDER}'} 格式的占位符
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!formData.name.trim()) {
-                setFormErrors({ name: '请输入模版名称' });
-                return;
-              }
-              if (!formData.yaml_spec.trim()) {
-                setFormErrors({ yaml_spec: '请输入YAML规范' });
-                return;
-              }
-              handleCreate({
-                name: formData.name.trim(),
-                description: formData.description.trim() || undefined,
-                yaml_spec: formData.yaml_spec.trim()
-              });
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="name">模版名称 *</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => {
-                  setFormData(prev => ({ ...prev, name: e.target.value }));
-                  if (formErrors.name) setFormErrors(prev => ({ ...prev, name: undefined }));
-                }}
-                placeholder="请输入模版名称"
-                className={formErrors.name ? 'border-destructive' : ''}
-              />
-              {formErrors.name && (
-                <p className="text-sm text-destructive">{formErrors.name}</p>
-              )}
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">总模板数</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{templates.length}</div>
+            <p className="text-xs text-muted-foreground">
+              当前管理的所有模板
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">活跃模板</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {templates.filter(t => t.created_at).length}
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">描述</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="请输入模版描述（可选）"
-              />
+            <p className="text-xs text-muted-foreground">
+              正在使用的模板
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">本月创建</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">
+              {templates.filter(t => {
+                const created = new Date(t.created_at);
+                const now = new Date();
+                return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+              }).length}
             </div>
+            <p className="text-xs text-muted-foreground">
+              本月新增模板
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">使用频率</CardTitle>
+            <Server className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-600">92%</div>
+            <p className="text-xs text-muted-foreground">
+              模板平均使用率
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="yaml_spec">YAML规范 *</Label>
-              <textarea
-                id="yaml_spec"
-                value={formData.yaml_spec}
-                onChange={(e) => {
-                  setFormData(prev => ({ ...prev, yaml_spec: e.target.value }));
-                  if (formErrors.yaml_spec) setFormErrors(prev => ({ ...prev, yaml_spec: undefined }));
-                }}
-                placeholder="请输入Kubernetes YAML规范，支持 ${'${PLACEHOLDER}'} 占位符"
-                className={`min-h-96 w-full rounded-md border px-3 py-2 text-sm font-mono ${formErrors.yaml_spec ? 'border-destructive' : 'border-input'} bg-background`}
-              />
-              {formErrors.yaml_spec && (
-                <p className="text-sm text-destructive">{formErrors.yaml_spec}</p>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setCreateModalVisible(false);
-                  setFormData({ name: '', description: '', yaml_spec: '' });
-                  setFormErrors({});
-                }}
-              >
-                取消
-              </Button>
-              <Button type="submit">
-                创建
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* 编辑模版对话框 */}
+      {/* Edit Template Modal */}
       <Dialog open={editModalVisible} onOpenChange={setEditModalVisible}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>编辑应用模版</DialogTitle>
+            <DialogTitle>编辑模板</DialogTitle>
             <DialogDescription>
-              修改模版信息，支持使用 ${'${PLACEHOLDER}'} 格式的占位符
+              修改模板的配置信息
             </DialogDescription>
           </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!formData.name.trim()) {
-                setFormErrors({ name: '请输入模版名称' });
-                return;
-              }
-              if (!formData.yaml_spec.trim()) {
-                setFormErrors({ yaml_spec: '请输入YAML规范' });
-                return;
-              }
-              handleUpdate({
-                name: formData.name.trim(),
-                description: formData.description.trim() || undefined,
-                yaml_spec: formData.yaml_spec.trim()
-              });
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">模版名称 *</Label>
-              <Input
-                id="edit-name"
-                value={formData.name}
-                onChange={(e) => {
-                  setFormData(prev => ({ ...prev, name: e.target.value }));
-                  if (formErrors.name) setFormErrors(prev => ({ ...prev, name: undefined }));
-                }}
-                placeholder="请输入模版名称"
-                className={formErrors.name ? 'border-destructive' : ''}
-              />
-              {formErrors.name && (
-                <p className="text-sm text-destructive">{formErrors.name}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-description">描述</Label>
-              <Input
-                id="edit-description"
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="请输入模版描述（可选）"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-yaml_spec">YAML规范 *</Label>
-              <textarea
-                id="edit-yaml_spec"
-                value={formData.yaml_spec}
-                onChange={(e) => {
-                  setFormData(prev => ({ ...prev, yaml_spec: e.target.value }));
-                  if (formErrors.yaml_spec) setFormErrors(prev => ({ ...prev, yaml_spec: undefined }));
-                }}
-                placeholder="请输入Kubernetes YAML规范，支持 ${'${PLACEHOLDER}'} 占位符"
-                className={`min-h-96 w-full rounded-md border px-3 py-2 text-sm font-mono ${formErrors.yaml_spec ? 'border-destructive' : 'border-input'} bg-background`}
-              />
-              {formErrors.yaml_spec && (
-                <p className="text-sm text-destructive">{formErrors.yaml_spec}</p>
-              )}
-            </div>
-
+          <div className="space-y-4">
+            {/* Mode switcher */}
+            <Tabs value={editMode} onValueChange={(value) => setEditMode(value as EditMode)}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="structured" className="flex items-center gap-2">
+                  <Layers className="h-4 w-4" />
+                  结构化编辑
+                </TabsTrigger>
+                <TabsTrigger value="yaml" className="flex items-center gap-2">
+                  <Code className="h-4 w-4" />
+                  YAML编辑
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="structured" className="space-y-4">
+                {editor.editedData && (
+                  <UnifiedEditor
+                    type="template"
+                    data={editor.editedData}
+                    onUpdate={editor.updateData}
+                  />
+                )}
+              </TabsContent>
+              
+              <TabsContent value="yaml" className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="yaml-editor">YAML配置</Label>
+                  <textarea
+                    id="yaml-editor"
+                    value={yamlContent}
+                    onChange={(e) => setYamlContent(e.target.value)}
+                    className="min-h-[400px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                    placeholder="输入Kubernetes YAML配置"
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
+            
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => {
                   setEditModalVisible(false);
-                  setFormData({ name: '', description: '', yaml_spec: '' });
-                  setFormErrors({});
                   setCurrentTemplate(null);
+                  editor.cancelEditing();
+                  setYamlContent('');
                 }}
               >
                 取消
               </Button>
-              <Button type="submit">
-                更新
+              <Button onClick={handleUpdateTemplate}>
+                更新模板
               </Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* 预览模版对话框 */}
-      <Dialog open={previewVisible} onOpenChange={setPreviewVisible}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>模版预览</DialogTitle>
-            <DialogDescription>
-              查看模版的详细信息和YAML规范
-            </DialogDescription>
-          </DialogHeader>
-          {currentTemplate && (
-            <div className="space-y-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-muted-foreground">模版名称</Label>
-                      <p className="font-medium">{currentTemplate.name}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">描述</Label>
-                      <p className="font-medium">{currentTemplate.description || '无'}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">创建时间</Label>
-                      <p className="font-medium">{formatDate(currentTemplate.created_at)}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">更新时间</Label>
-                      <p className="font-medium">{formatDate(currentTemplate.updated_at)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div>
-                <Label className="text-muted-foreground">YAML规范</Label>
-                <pre className="mt-2 w-full rounded-md bg-muted p-4 text-sm font-mono overflow-auto max-h-96">
-                  {currentTemplate.yaml_spec}
-                </pre>
-              </div>
+      {/* Templates Grid */}
+      {templates.length === 0 ? (
+        <Card className="flex flex-col items-center justify-center py-16">
+          <div className="flex flex-col items-center space-y-4 text-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+              <FileText className="h-10 w-10 text-muted-foreground" />
             </div>
-          )}
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                setPreviewVisible(false);
-                setCurrentTemplate(null);
-              }}
-            >
-              关闭
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold">暂无模板</h3>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                您还没有创建任何模板。点击上方"创建模板"按钮开始创建您的第一个模板。
+              </p>
+            </div>
+            <Button onClick={() => setCreateModalVisible(true)} className="mt-4">
+              <Plus className="mr-2 h-4 w-4" />
+              创建第一个模板
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </Card>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {templates.map((template) => (
+            <Card key={template.id} className="group hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1 flex-1">
+                    <CardTitle className="text-lg line-clamp-1">{template.name}</CardTitle>
+                    <CardDescription className="line-clamp-2">
+                      {template.description || '暂无描述'}
+                    </CardDescription>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleEditTemplate(template)}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        编辑模板
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => copyToClipboard(template.yaml_spec)}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        复制YAML
+                      </DropdownMenuItem>
+                      <Popconfirm
+                        title="确定要删除这个模板吗？"
+                        description="删除后将无法恢复，请谨慎操作"
+                        onConfirm={() => handleDeleteTemplate(template.id)}
+                        okText="确定"
+                        cancelText="取消"
+                      >
+                        <DropdownMenuItem className="text-destructive focus:text-destructive">
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          删除模板
+                        </DropdownMenuItem>
+                      </Popconfirm>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-3">
+                  {/* Template info */}
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Calendar className="h-3 w-3" />
+                      <span>{formatDate(template.created_at)}</span>
+                    </div>
+                    <Badge variant="secondary" className="text-xs">
+                      {template.parsed_spec?.image ? '已解析' : '原始'}
+                    </Badge>
+                  </div>
+                  
+                  {/* Image info */}
+                  {template.parsed_spec?.image && (
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-medium">镜像: </span>
+                      <code className="bg-muted px-1 py-0.5 rounded text-xs">
+                        {template.parsed_spec.image}
+                      </code>
+                    </div>
+                  )}
+                  
+                  {/* Actions */}
+                  <div className="flex gap-2 pt-2">
+                    <Button 
+                      onClick={() => handleEditTemplate(template)}
+                      className="flex-1"
+                      size="sm"
+                    >
+                      <Edit className="mr-2 h-3 w-3" />
+                      编辑
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => copyToClipboard(template.yaml_spec)}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

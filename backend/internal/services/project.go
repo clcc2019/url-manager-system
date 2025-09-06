@@ -237,7 +237,7 @@ func (s *ProjectService) DeleteProject(ctx context.Context, id uuid.UUID) error 
 	return nil
 }
 
-// CheckProjectOwnership 检查项目所有权
+// CheckProjectOwnership 检查项目所有权（已移除权限检查）
 func (s *ProjectService) CheckProjectOwnership(ctx context.Context, projectID, userID uuid.UUID) error {
 	var ownerID uuid.UUID
 	query := "SELECT user_id FROM projects WHERE id = $1"
@@ -249,9 +249,58 @@ func (s *ProjectService) CheckProjectOwnership(ctx context.Context, projectID, u
 		return fmt.Errorf("failed to check project ownership: %w", err)
 	}
 
-	if ownerID != userID {
-		return fmt.Errorf("access denied: project belongs to another user")
+	// 所有登录用户都可以访问所有项目
+	return nil
+}
+
+// ProjectStats 项目统计数据
+type ProjectStats struct {
+	TotalProjects  int `json:"totalProjects"`
+	ActiveURLs     int `json:"activeUrls"`
+	RecentActivity int `json:"recentActivity"`
+	SuccessRate    int `json:"successRate"`
+}
+
+// GetProjectStats 获取项目统计数据
+func (s *ProjectService) GetProjectStats(ctx context.Context) (*ProjectStats, error) {
+	stats := &ProjectStats{}
+
+	// 获取总项目数
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects").Scan(&stats.TotalProjects)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count projects: %w", err)
 	}
 
-	return nil
+	// 获取活跃URL数量（状态为active的URL）
+	err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM ephemeral_urls WHERE status = 'active'").Scan(&stats.ActiveURLs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count active URLs: %w", err)
+	}
+
+	// 获取最近活动数（最近24小时内更新的项目）
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+	err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projects WHERE updated_at > $1", yesterday).Scan(&stats.RecentActivity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count recent activity: %w", err)
+	}
+
+	// 计算成功率（活跃URL / 总URL * 100，如果没有URL则为100）
+	var totalURLs int
+	err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM ephemeral_urls").Scan(&totalURLs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count total URLs: %w", err)
+	}
+
+	if totalURLs > 0 {
+		stats.SuccessRate = (stats.ActiveURLs * 100) / totalURLs
+		// 确保成功率不超过100
+		if stats.SuccessRate > 100 {
+			stats.SuccessRate = 100
+		}
+	} else {
+		stats.SuccessRate = 100
+	}
+
+	return stats, nil
 }

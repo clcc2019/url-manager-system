@@ -21,6 +21,20 @@ backend:
     type: ClusterIP
     port: 8080
     targetPort: 8080
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
   
   resources:
     limits:
@@ -41,7 +55,7 @@ backend:
     k8s:
       namespace: "default"
       in_cluster: true
-      default_domain: "dslife.asia"
+      default_domain: "url.dslife.asia"
       ingress_class: "traefik"
     
     security:
@@ -56,6 +70,8 @@ backend:
       default_cpu_limit: "500m"
       default_mem_limit: "512Mi"
 
+
+
 # Frontend configuration
 frontend:
   replicaCount: 1
@@ -69,6 +85,20 @@ frontend:
     type: ClusterIP
     port: 80
     targetPort: 80
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 15
   
   resources:
     limits:

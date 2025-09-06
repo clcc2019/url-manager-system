@@ -187,8 +187,17 @@ func (s *URLService) DeployURL(ctx context.Context, urlID uuid.UUID) error {
 		return fmt.Errorf("failed to get URL: %w", err)
 	}
 
-	// 检查状态 - 允许draft和failed状态进行部署
-	if url.Status != "draft" && url.Status != models.StatusFailed {
+	// 检查状态 - 允许draft、failed、active状态进行部署（active状态用于更新）
+	allowedStatuses := []string{"draft", models.StatusFailed, models.StatusActive, models.StatusWaiting, models.StatusCreating}
+	isAllowed := false
+	for _, status := range allowedStatuses {
+		if url.Status == status {
+			isAllowed = true
+			break
+		}
+	}
+
+	if !isAllowed {
 		return fmt.Errorf("URL is not in deployable status, current status: %s", url.Status)
 	}
 
@@ -199,10 +208,12 @@ func (s *URLService) DeployURL(ctx context.Context, urlID uuid.UUID) error {
 		return fmt.Errorf("failed to get project name: %w", err)
 	}
 
-	// 更新状态为创建中
-	s.updateURLStatus(ctx, url.ID, models.StatusCreating, "")
+	// 更新状态为创建中（如果不是active状态）
+	if url.Status != models.StatusActive {
+		s.updateURLStatus(ctx, url.ID, models.StatusCreating, "")
+	}
 
-	// 创建Kubernetes资源
+	// 创建或更新Kubernetes资源
 	if err := s.createKubernetesResources(ctx, url, projectName); err != nil {
 		logrus.WithError(err).Error("Failed to deploy Kubernetes resources")
 		s.updateURLStatus(ctx, url.ID, models.StatusFailed, err.Error())
@@ -217,7 +228,14 @@ func (s *URLService) DeployURL(ctx context.Context, urlID uuid.UUID) error {
 		logrus.WithError(err).Error("Failed to update deployment status")
 	}
 
-	logrus.WithField("url_id", url.ID).Info("URL deployed successfully")
+	// 如果原来是active状态，保持active状态；否则设置为waiting状态
+	if url.Status == models.StatusActive {
+		logrus.WithField("url_id", url.ID).Info("URL updated successfully")
+	} else {
+		s.updateURLStatus(ctx, url.ID, models.StatusWaiting, "")
+		logrus.WithField("url_id", url.ID).Info("URL deployed successfully")
+	}
+
 	return nil
 }
 
@@ -225,7 +243,7 @@ func (s *URLService) DeployURL(ctx context.Context, urlID uuid.UUID) error {
 func (s *URLService) GetEphemeralURL(ctx context.Context, id uuid.UUID) (*models.EphemeralURL, error) {
 	query := `
 		SELECT eu.id, eu.project_id, eu.path, eu.image, eu.env, eu.replicas, eu.resources,
-		       eu.status, eu.k8s_deployment_name, eu.k8s_service_name, eu.k8s_secret_name,
+		       eu.container_config, eu.status, eu.k8s_deployment_name, eu.k8s_service_name, eu.k8s_secret_name,
 		       eu.error_message, eu.expire_at, eu.created_at, eu.updated_at,
 		       p.id, p.name, p.description, p.created_at, p.updated_at
 		FROM ephemeral_urls eu
@@ -236,7 +254,7 @@ func (s *URLService) GetEphemeralURL(ctx context.Context, id uuid.UUID) (*models
 	url := &models.EphemeralURL{Project: &models.Project{}}
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&url.ID, &url.ProjectID, &url.Path, &url.Image, &url.Env, &url.Replicas, &url.Resources,
-		&url.Status, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
+		&url.ContainerConfig, &url.Status, &url.K8sDeploymentName, &url.K8sServiceName, &url.K8sSecretName,
 		&url.ErrorMessage, &url.ExpireAt, &url.CreatedAt, &url.UpdatedAt,
 		&url.Project.ID, &url.Project.Name, &url.Project.Description, &url.Project.CreatedAt, &url.Project.UpdatedAt,
 	)
@@ -253,14 +271,29 @@ func (s *URLService) GetEphemeralURL(ctx context.Context, id uuid.UUID) (*models
 
 // UpdateEphemeralURL 更新临时URL
 func (s *URLService) UpdateEphemeralURL(ctx context.Context, id uuid.UUID, req *models.UpdateEphemeralURLRequest) (*models.EphemeralURL, error) {
+	logrus.WithFields(logrus.Fields{
+		"url_id":  id.String(),
+		"request": req,
+	}).Info("Starting URL update")
+
 	// 获取现有URL
 	existingURL, err := s.GetEphemeralURL(ctx, id)
 	if err != nil {
+		logrus.WithError(err).WithField("url_id", id.String()).Error("Failed to get existing URL")
 		return nil, err
 	}
 
+	logrus.WithFields(logrus.Fields{
+		"url_id":            id.String(),
+		"existing_image":    existingURL.Image,
+		"existing_replicas": existingURL.Replicas,
+		"new_image":         req.Image,
+		"new_replicas":      req.Replicas,
+	}).Info("Current vs new values")
+
 	// 验证更新请求
 	if err := s.validateUpdateRequest(req); err != nil {
+		logrus.WithError(err).WithField("url_id", id.String()).Error("Validation failed")
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
@@ -300,13 +333,16 @@ func (s *URLService) UpdateEphemeralURL(ctx context.Context, id uuid.UUID, req *
 		argIndex++
 	}
 
-	if req.ContainerConfig.Command != nil || req.ContainerConfig.Args != nil ||
-		req.ContainerConfig.WorkingDir != "" || req.ContainerConfig.TTY ||
-		req.ContainerConfig.Stdin || len(req.ContainerConfig.Devices) > 0 {
-		setParts = append(setParts, fmt.Sprintf("container_config = $%d", argIndex))
-		args = append(args, req.ContainerConfig)
-		argIndex++
-	}
+	// 总是更新container_config，因为前端会发送完整的配置
+	// 这样可以支持清空字段（如设置command为空数组）
+	setParts = append(setParts, fmt.Sprintf("container_config = $%d", argIndex))
+	args = append(args, req.ContainerConfig)
+	argIndex++
+
+	logrus.WithFields(logrus.Fields{
+		"url_id":           id.String(),
+		"container_config": req.ContainerConfig,
+	}).Info("Updating container_config")
 
 	if req.IngressHost != nil {
 		setParts = append(setParts, fmt.Sprintf("ingress_host = $%d", argIndex))
@@ -328,10 +364,19 @@ func (s *URLService) UpdateEphemeralURL(ctx context.Context, id uuid.UUID, req *
 		strings.Join(setParts, ", "), argIndex)
 	args = append(args, id)
 
+	logrus.WithFields(logrus.Fields{
+		"url_id": id.String(),
+		"query":  query,
+		"args":   args,
+	}).Info("Executing update query")
+
 	_, err = s.db.ExecContext(ctx, query, args...)
 	if err != nil {
+		logrus.WithError(err).WithField("url_id", id.String()).Error("Failed to execute update query")
 		return nil, fmt.Errorf("failed to update URL: %w", err)
 	}
+
+	logrus.WithField("url_id", id.String()).Info("Database update completed successfully")
 
 	// 如果状态为active且TTL被更新，重新计算过期时间
 	if existingURL.Status == models.StatusActive && req.TTLSeconds > 0 {
@@ -350,6 +395,94 @@ func (s *URLService) UpdateEphemeralURL(ctx context.Context, id uuid.UUID, req *
 
 	logrus.WithField("url_id", id).Info("URL updated successfully")
 	return updatedURL, nil
+}
+
+// GetURLContainerStatus 获取URL容器状态
+func (s *URLService) GetURLContainerStatus(ctx context.Context, id uuid.UUID) ([]*models.ContainerStatus, error) {
+	// 获取URL信息
+	url, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查Kubernetes资源管理器是否可用
+	if s.resourceManager == nil {
+		return nil, fmt.Errorf("Kubernetes client not available")
+	}
+
+	// 检查URL是否有部署名称
+	if url.K8sDeploymentName == nil {
+		return []*models.ContainerStatus{}, nil
+	}
+
+	// 获取容器状态
+	statuses, err := s.resourceManager.GetContainerStatus(ctx, *url.K8sDeploymentName)
+	if err != nil {
+		logrus.WithError(err).WithField("url_id", id).Error("Failed to get container status")
+		return nil, fmt.Errorf("failed to get container status: %w", err)
+	}
+
+	return statuses, nil
+}
+
+// GetURLPodEvents 获取URL Pod事件
+func (s *URLService) GetURLPodEvents(ctx context.Context, id uuid.UUID) ([]*models.PodEvent, error) {
+	// 获取URL信息
+	url, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查Kubernetes资源管理器是否可用
+	if s.resourceManager == nil {
+		return nil, fmt.Errorf("Kubernetes client not available")
+	}
+
+	// 检查URL是否有部署名称
+	if url.K8sDeploymentName == nil {
+		return []*models.PodEvent{}, nil
+	}
+
+	// 获取Pod事件
+	events, err := s.resourceManager.GetPodEvents(ctx, *url.K8sDeploymentName)
+	if err != nil {
+		logrus.WithError(err).WithField("url_id", id).Error("Failed to get pod events")
+		return nil, fmt.Errorf("failed to get pod events: %w", err)
+	}
+
+	return events, nil
+}
+
+// GetURLContainerLogs 获取URL容器日志
+func (s *URLService) GetURLContainerLogs(ctx context.Context, id uuid.UUID, containerName string, lines int) ([]*models.ContainerLog, error) {
+	// 获取URL信息
+	url, err := s.GetEphemeralURL(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查Kubernetes资源管理器是否可用
+	if s.resourceManager == nil {
+		return nil, fmt.Errorf("Kubernetes client not available")
+	}
+
+	// 检查URL是否有部署名称
+	if url.K8sDeploymentName == nil {
+		return []*models.ContainerLog{}, nil
+	}
+
+	// 获取容器日志
+	logs, err := s.resourceManager.GetContainerLogs(ctx, *url.K8sDeploymentName, containerName, lines)
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"url_id":    id,
+			"container": containerName,
+			"lines":     lines,
+		}).Error("Failed to get container logs")
+		return nil, fmt.Errorf("failed to get container logs: %w", err)
+	}
+
+	return logs, nil
 }
 
 // validateUpdateRequest 验证更新请求
@@ -590,14 +723,14 @@ func (s *URLService) createKubernetesResources(ctx context.Context, url *models.
 		}
 	}
 
-	// 创建Deployment
-	if err := s.resourceManager.CreateDeployment(ctx, url); err != nil {
-		return fmt.Errorf("failed to create deployment: %w", err)
+	// 创建或更新Deployment
+	if err := s.resourceManager.CreateOrUpdateDeployment(ctx, url); err != nil {
+		return fmt.Errorf("failed to create or update deployment: %w", err)
 	}
 
-	// 创建Service
-	if err := s.resourceManager.CreateService(ctx, url); err != nil {
-		return fmt.Errorf("failed to create service: %w", err)
+	// 创建或更新Service
+	if err := s.resourceManager.CreateOrUpdateService(ctx, url); err != nil {
+		return fmt.Errorf("failed to create or update service: %w", err)
 	}
 
 	// 添加Ingress路径
@@ -730,20 +863,37 @@ func (s *URLService) verifyDeployment(url *models.EphemeralURL) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
+	logrus.WithFields(logrus.Fields{
+		"url_id":          url.ID,
+		"deployment_name": url.K8sDeploymentName,
+	}).Info("Starting deployment verification")
+
 	for {
 		select {
 		case <-timeout:
+			logrus.WithField("url_id", url.ID).Warn("Deployment verification timeout")
 			s.updateURLStatus(ctx, url.ID, models.StatusFailed, "deployment verification timeout")
 			return
 		case <-ticker.C:
 			if url.K8sDeploymentName != nil {
 				ready, err := s.resourceManager.CheckDeploymentReady(ctx, *url.K8sDeploymentName)
 				if err != nil {
+					// 检查是否是deployment不存在的错误
+					if strings.Contains(err.Error(), "not found") {
+						logrus.WithFields(logrus.Fields{
+							"url_id":          url.ID,
+							"deployment_name": *url.K8sDeploymentName,
+							"error":           err.Error(),
+						}).Error("Deployment not found, marking as failed")
+						s.updateURLStatus(ctx, url.ID, models.StatusFailed, fmt.Sprintf("deployment not found: %s", err.Error()))
+						return
+					}
 					logrus.WithError(err).Error("Failed to check deployment status")
 					continue
 				}
 
 				if ready {
+					logrus.WithField("url_id", url.ID).Info("Deployment is ready, marking as active")
 					s.updateURLStatus(ctx, url.ID, models.StatusActive, "")
 					return
 				}
@@ -791,13 +941,22 @@ func (s *URLService) CreateEphemeralURLFromTemplate(ctx context.Context, project
 		}
 	}
 
+	// 生成全局唯一的资源名称
+	baseID := uuid.New().String()[:8]
+
 	// 生成模版变量
 	variables := map[string]string{
 		"PATH":            strings.TrimPrefix(path, "/"),
-		"SERVICE_NAME":    fmt.Sprintf("svc-ephemeral-%s", uuid.New().String()[:8]),
-		"DEPLOYMENT_NAME": fmt.Sprintf("ephemeral-%s", uuid.New().String()[:8]),
+		"SERVICE_NAME":    fmt.Sprintf("svc-ephemeral-%s", baseID),
+		"DEPLOYMENT_NAME": fmt.Sprintf("ephemeral-%s", baseID),
 		"PROJECT_NAME":    project.Name,
-		"UUID":            uuid.New().String()[:8],
+		"UUID":            baseID,
+	}
+
+	// 获取模板信息
+	template, err := s.templateService.GetTemplate(ctx, req.TemplateID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get template: %w", err)
 	}
 
 	// 处理模版，获取处理后的YAML
@@ -806,13 +965,21 @@ func (s *URLService) CreateEphemeralURLFromTemplate(ctx context.Context, project
 		return nil, fmt.Errorf("failed to process template: %w", err)
 	}
 
-	// 创建 URL 记录
+	// 从模板解析规格创建URL记录
 	url := &models.EphemeralURL{
 		ID:         uuid.New(),
 		ProjectID:  projectID,
 		TemplateID: &req.TemplateID,
 		Path:       path,
-		Image:      "template-based", // 模版创建的无具体镜像
+		Image:      template.ParsedSpec.Image,     // 使用模板中解析的镜像
+		Env:        template.ParsedSpec.Env,       // 使用模板中的环境变量
+		Replicas:   1,                             // 默认1个副本
+		Resources:  template.ParsedSpec.Resources, // 使用模板中的资源配置
+		ContainerConfig: models.ContainerConfig{
+			Command:    template.ParsedSpec.Command,    // 使用模板中的命令
+			Args:       template.ParsedSpec.Args,       // 使用模板中的参数
+			WorkingDir: template.ParsedSpec.WorkingDir, // 使用模板中的工作目录
+		},
 		Status:     models.StatusCreating,
 		TTLSeconds: req.TTLSeconds,                 // 保存TTL值
 		ExpireAt:   time.Now().Add(24 * time.Hour), // 临时过期时间
@@ -901,9 +1068,16 @@ func (s *URLService) insertURLRecordWithTemplate(ctx context.Context, tx *sql.Tx
 
 // createKubernetesResourcesFromYAML 从处理后的YAML创建 Kubernetes 资源
 func (s *URLService) createKubernetesResourcesFromYAML(ctx context.Context, url *models.EphemeralURL, yamlSpec string) error {
-	// TODO: 实现YAML解析和Kubernetes资源创建
-	// 这里需要解析YAML并使用client-go创建资源
+	if s.resourceManager == nil {
+		return fmt.Errorf("kubernetes resource manager not available")
+	}
+
 	logrus.WithField("url_id", url.ID).Info("Creating Kubernetes resources from YAML template")
+
+	// 解析YAML并创建资源
+	if err := s.resourceManager.CreateResourcesFromYAML(ctx, yamlSpec); err != nil {
+		return fmt.Errorf("failed to create resources from YAML: %w", err)
+	}
 
 	// 更新状态为waiting（等待Pod Ready）
 	s.updateURLStatus(ctx, url.ID, models.StatusWaiting, "")

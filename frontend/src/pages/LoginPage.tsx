@@ -1,224 +1,219 @@
 import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
-import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { User, Lock, Loader2, Shield, AlertCircle } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+import { Alert } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
+import { 
+  Link2, 
+  User, 
+  Lock, 
+  Eye, 
+  EyeOff,
+  AlertCircle,
+  CheckCircle,
+  Sparkles
+} from 'lucide-react';
 
-
-
-export default function LoginPage() {
-  const [formData, setFormData] = useState({ username: '', password: '' });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<{ username?: string; password?: string; general?: string }>({});
-  const { login, isLoading } = useAuth();
+const LoginPage: React.FC = () => {
+  const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { toast } = useToast();
+  
+  const [formData, setFormData] = useState({
+    username: '',
+    password: '',
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  // 获取重定向路径，默认回到首页
-  const from = (location.state as any)?.from?.pathname || '/';
-
-  const updateFormData = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    // 清除相关错误
-    if (errors[field as keyof typeof errors]) {
-      setErrors(prev => ({ ...prev, [field]: undefined, general: undefined }));
-    }
-  };
-
-  const validateForm = () => {
-    const newErrors: { username?: string; password?: string } = {};
-    
-    if (!formData.username.trim()) {
-      newErrors.username = '请输入用户名';
-    } else if (formData.username.trim().length < 3) {
-      newErrors.username = '用户名至少需要3个字符';
-    }
-    
-    if (!formData.password) {
-      newErrors.password = '请输入密码';
-    } else if (formData.password.length < 6) {
-      newErrors.password = '密码至少需要6个字符';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  const from = location.state?.from?.pathname || '/';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-    
-    setIsSubmitting(true);
-    setErrors(prev => ({ ...prev, general: undefined }));
-    
+    setError('');
+    setLoading(true);
+
     try {
-      await login(formData.username.trim(), formData.password);
-      
-      toast({
-        title: '登录成功',
-        description: `欢迎回来，${formData.username}！`,
-      });
-      
-      // 登录成功后跳转
+      await login(formData.username, formData.password);
       navigate(from, { replace: true });
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.error || '用户名或密码错误';
-      
-      setErrors({ general: errorMessage });
-      
-      toast({
-        title: '登录失败',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      setError(error.message || '登录失败，请检查用户名和密码');
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-        <div className="flex flex-col items-center space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">正在验证登录状态...</p>
-        </div>
-      </div>
-    );
-  }
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (error) setError('');
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-muted/50 to-muted flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <Card className="shadow-lg border border-border/50 bg-card/95 backdrop-blur-sm">
-          <CardHeader className="text-center space-y-4 pb-8">
-            <div className="mx-auto w-12 h-12 bg-primary rounded-full flex items-center justify-center">
-              <Shield className="h-6 w-6 text-primary-foreground" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-8">
+        {/* Logo and Title */}
+        <div className="text-center space-y-4">
+          <div className="flex justify-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
+              <Link2 className="h-8 w-8" />
             </div>
-            <div>
-              <CardTitle className="text-2xl font-bold text-foreground">
-                URL管理系统
-              </CardTitle>
-              <CardDescription className="mt-2 text-base">
-                安全登录到您的管理后台
-              </CardDescription>
-            </div>
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-3xl font-bold tracking-tight">URL Manager</h1>
+            <p className="text-muted-foreground">
+              临时URL管理系统
+            </p>
+          </div>
+        </div>
+
+        {/* Login Card */}
+        <Card className="shadow-xl border-0 bg-card/50 backdrop-blur">
+          <CardHeader className="space-y-1 text-center">
+            <CardTitle className="text-2xl font-semibold">欢迎回来</CardTitle>
+            <CardDescription>
+              请输入您的凭据以访问您的账户
+            </CardDescription>
           </CardHeader>
-          
           <CardContent className="space-y-6">
-            {errors.general && (
-              <Alert variant="destructive">
+            {error && (
+              <Alert variant="destructive" className="animate-in slide-in-from-top-2">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{errors.general}</AlertDescription>
+                <div className="ml-2">{error}</div>
               </Alert>
             )}
-            
-            <form onSubmit={handleSubmit} className="space-y-5">
+
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-sm font-medium text-foreground">
+                <Label htmlFor="username" className="text-sm font-medium">
                   用户名
                 </Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="username"
                     type="text"
-                    placeholder="请输入用户名"
                     value={formData.username}
-                    onChange={(e) => updateFormData('username', e.target.value)}
-                    className={`pl-9 h-11 transition-colors ${
-                      errors.username 
-                        ? 'border-destructive focus-visible:ring-destructive' 
-                        : 'focus-visible:ring-primary'
-                    }`}
-                    autoComplete="username"
-                    disabled={isSubmitting}
+                    onChange={(e) => handleInputChange('username', e.target.value)}
+                    placeholder="输入您的用户名"
+                    className="pl-10 h-12"
+                    required
+                    disabled={loading}
                   />
                 </div>
-                {errors.username && (
-                  <p className="text-sm text-destructive flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {errors.username}
-                  </p>
-                )}
               </div>
-              
+
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-foreground">
+                <Label htmlFor="password" className="text-sm font-medium">
                   密码
                 </Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="password"
-                    type="password"
-                    placeholder="请输入密码"
+                    type={showPassword ? 'text' : 'password'}
                     value={formData.password}
-                    onChange={(e) => updateFormData('password', e.target.value)}
-                    className={`pl-9 h-11 transition-colors ${
-                      errors.password 
-                        ? 'border-destructive focus-visible:ring-destructive' 
-                        : 'focus-visible:ring-primary'
-                    }`}
-                    autoComplete="current-password"
-                    disabled={isSubmitting}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    placeholder="输入您的密码"
+                    className="pl-10 pr-10 h-12"
+                    required
+                    disabled={loading}
                   />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1 h-10 w-10 p-0"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={loading}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
-                {errors.password && (
-                  <p className="text-sm text-destructive flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {errors.password}
-                  </p>
-                )}
               </div>
-              
+
               <Button
                 type="submit"
-                disabled={isSubmitting || !formData.username || !formData.password}
                 className="w-full h-12 text-base font-medium"
+                disabled={loading || !formData.username || !formData.password}
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    登录中...
-                  </>
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <Spinner size="sm" />
+                    <span>登录中...</span>
+                  </div>
                 ) : (
-                  '立即登录'
+                  <div className="flex items-center gap-2">
+                    <span>登录</span>
+                    <CheckCircle className="h-4 w-4" />
+                  </div>
                 )}
               </Button>
             </form>
-            
-            <Separator className="my-6" />
-            
-            <div className="bg-muted border border-border rounded-lg p-4">
-              <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0">
-                  <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+
+            {/* Demo Accounts */}
+            <div className="space-y-3">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
                 </div>
-                <div>
-                  <h4 className="text-sm font-medium text-foreground mb-1">
-                    默认管理员账户
-                  </h4>
-                  <div className="text-sm text-muted-foreground space-y-1">
-                    <p><span className="font-medium">用户名：</span>admin</p>
-                    <p><span className="font-medium">密码：</span>admin123</p>
-                  </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">
+                    演示账户
+                  </span>
                 </div>
+              </div>
+              
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => {
+                    setFormData({ username: 'admin', password: 'admin123' });
+                    setError('');
+                  }}
+                  disabled={loading}
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  管理员账户 (admin/admin123)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => {
+                    setFormData({ username: 'user', password: 'user123' });
+                    setError('');
+                  }}
+                  disabled={loading}
+                >
+                  <User className="mr-2 h-4 w-4" />
+                  普通用户 (user/user123)
+                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Footer */}
+        <div className="text-center text-sm text-muted-foreground space-y-2">
+          <p>© 2024 URL Manager System</p>
+          <p>安全、高效的临时URL管理解决方案</p>
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default LoginPage;
