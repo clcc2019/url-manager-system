@@ -477,26 +477,6 @@ func (rm *ResourceManager) buildContainerSpec(url *models.EphemeralURL) corev1.C
 				Drop: []corev1.Capability{"ALL"},
 			},
 		},
-		LivenessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path: "/",
-					Port: intstr.FromInt(80),
-				},
-			},
-			InitialDelaySeconds: 30,
-			PeriodSeconds:       10,
-		},
-		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path: "/",
-					Port: intstr.FromInt(80),
-				},
-			},
-			InitialDelaySeconds: 5,
-			PeriodSeconds:       5,
-		},
 	}
 
 	// 设置命令和参数
